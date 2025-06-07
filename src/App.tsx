@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Route, Routes, useLocation } from 'react-router-dom';
 import Book from './components/Book';
 import BookCover from './components/BookCover';
-import PlayLearnPage from './components/PlayLearnPage';
+import PlayLearnPage from './components/PlayLearnPage.tsx';
 import { useAppStore } from './store/useAppStore';
 
 function App() {

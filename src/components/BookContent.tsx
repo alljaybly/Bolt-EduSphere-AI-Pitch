@@ -4,7 +4,7 @@ import { useAppStore } from '../store/useAppStore';
 import SubjectSelector from './SubjectSelector';
 import ProblemGenerator from './ProblemGenerator';
 import ProgressTracker from './ProgressTracker';
-import MatricTab from './MatricTab';
+import MatricTab from './MatricTab.tsx';
 import PromptMasterTab from './PromptMasterTab';
 import CodingEducation from './CodingEducation';
 import PlayLearnTab from './PlayLearnTab';
