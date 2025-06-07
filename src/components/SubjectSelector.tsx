@@ -1,71 +1,160 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { motion } from 'framer-motion';
+import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useAppStore } from '../store/useAppStore';
+import { SubjectType, GradeType } from '../types';
+import { 
+  Calculator, 
+  Atom, 
+  Microscope, 
+  BookText, 
+  Clock, 
+  Globe2, 
+  Code 
+} from 'lucide-react';
 
 const SubjectSelector: React.FC = () => {
-  const { currentSubject, currentGrade, setCurrentSubject, setCurrentGrade } = useAppStore();
-  const [showStudyPlanGrade, setShowStudyPlanGrade] = useState(false);
-
-  const subjects = [
-    'Coding', 'Mathematics', 'Physical Sciences', 'English', 'Life Sciences',
-    'Biology', 'Accounting', 'Business Studies', 'Economics', 'Arts & Crafts',
-    'Life Orientation', 'EMS', 'Technology', 'Natural Science'
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const { 
+    currentSubject, 
+    currentGrade, 
+    setSubject, 
+    setGrade,
+    generateNewProblem,
+    setActiveTab
+  } = useAppStore();
+  
+  const subjects: { id: SubjectType; name: string; icon: React.ReactNode }[] = [
+    { id: 'math', name: t('subjects.math'), icon: <Calculator size={24} /> },
+    { id: 'physics', name: t('subjects.physics'), icon: <Atom size={24} /> },
+    { id: 'science', name: t('subjects.science'), icon: <Microscope size={24} /> },
+    { id: 'english', name: t('subjects.english'), icon: <BookText size={24} /> },
+    { id: 'history', name: t('subjects.history'), icon: <Clock size={24} /> },
+    { id: 'geography', name: t('subjects.geography'), icon: <Globe2 size={24} /> },
+    { id: 'coding', name: t('subjects.coding'), icon: <Code size={24} /> },
   ];
 
-  const grades = { '1-4': 'Kindergarten/Primary', '5-7': 'Intermediate', '8-10': 'Senior Phase', '11-12': 'Matric' };
-  const studyPlanGrades = ['8', '9', '10', '11', '12'];
+  const grades: { id: GradeType; display: { top: string; bottom?: string } }[] = [
+    { id: 'kindergarten', display: { top: t('grades.kindergarten') } },
+    { id: 'grade1-6', display: { top: 'Grades', bottom: '1-6' } },
+    { id: 'grade7-9', display: { top: 'Grades', bottom: '7-9' } },
+    { id: 'grade10-12', display: { top: 'Grades', bottom: '10-12' } },
+    { id: 'matric', display: { top: t('grades.matric') } },
+  ];
+
+  const handleSubjectSelect = (subject: SubjectType) => {
+    const pageTurnSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2526/2526-preview.mp3');
+    pageTurnSound.volume = 0.3;
+    pageTurnSound.play().catch(() => {});
+    
+    setSubject(subject);
+    if (currentGrade) {
+      setTimeout(() => generateNewProblem(), 300);
+    }
+  };
+
+  const handleGradeSelect = (grade: GradeType) => {
+    const pageTurnSound = new Audio('https://assets.mixkit.co/active_storage/sfx/2526/2526-preview.mp3');
+    pageTurnSound.volume = 0.3;
+    pageTurnSound.play().catch(() => {});
+    
+    setGrade(grade);
+    
+    if (grade === 'kindergarten') {
+      setActiveTab('playlearn');
+      navigate('/play-learn');
+    } else if (currentSubject) {
+      setTimeout(() => generateNewProblem(), 300);
+    }
+  };
+
+  const containerVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: {
+      opacity: 1,
+      y: 0,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0 }
+  };
 
   return (
-    <div className="subject-selector mb-6">
-      <label htmlFor="subject" className="sr-only">Select a Subject</label>
-      <select
-        id="subject"
-        value={currentSubject || ''}
-        onChange={(e) => setCurrentSubject(e.target.value)}
-        className="p-2 border rounded w-full bg-white focus:ring-2 focus:ring-blue-500"
-        aria-label="Select a Subject"
-      >
-        <option value="">Select a Subject</option>
-        {subjects.map((subject) => (
-          <option key={subject} value={subject}>{subject}</option>
-        ))}
-      </select>
+    <motion.div 
+      className="mb-6 space-y-6"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      <div className="subjects-selector">
+        <h2 className="font-serif text-xl text-book-leather mb-4">{t('select_subject')}:</h2>
+        <motion.div 
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+          variants={containerVariants}
+        >
+          {subjects.map((subject) => (
+            <motion.button
+              key={subject.id}
+              variants={itemVariants}
+              className={`flex items-center px-3 py-4 rounded-lg transition-all ${
+                currentSubject === subject.id
+                  ? 'bg-primary-600 text-white shadow-lg'
+                  : 'bg-white/80 text-book-leather hover:bg-primary-100 hover:shadow-md'
+              }`}
+              onClick={() => handleSubjectSelect(subject.id)}
+              whileHover={{ scale: 1.02, transition: { type: "spring", stiffness: 400 } }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <motion.span 
+                className="w-8 flex justify-center mr-2"
+                animate={currentSubject === subject.id ? {
+                  rotate: [0, 360],
+                  transition: { duration: 0.5 }
+                } : {}}
+              >
+                {subject.icon}
+              </motion.span>
+              <span className="font-serif text-lg truncate">{subject.name}</span>
+            </motion.button>
+          ))}
+        </motion.div>
+      </div>
 
-      <label htmlFor="grade" className="sr-only">Select a Grade Range</label>
-      <select
-        id="grade"
-        value={currentGrade || ''}
-        onChange={(e) => {
-          setCurrentGrade(e.target.value);
-          setShowStudyPlanGrade(e.target.value === 'Study Plan');
-        }}
-        className="p-2 border rounded w-full mt-2 bg-white focus:ring-2 focus:ring-blue-500"
-        aria-label="Select a Grade Range"
-      >
-        <option value="">Select a Grade Range</option>
-        {Object.entries(grades).map(([value, label]) => (
-          <option key={value} value={value}>{label}</option>
-        ))}
-        <option value="Study Plan">Study Plan (8-12)</option>
-      </select>
-
-      {showStudyPlanGrade && (
-        <>
-          <label htmlFor="studyPlanGrade" className="sr-only">Select a Grade for Study Plan</label>
-          <select
-            id="studyPlanGrade"
-            value={currentGrade || ''}
-            onChange={(e) => setCurrentGrade(e.target.value)}
-            className="p-2 border rounded w-full mt-2 bg-white focus:ring-2 focus:ring-blue-500"
-            aria-label="Select a Grade for Study Plan"
-          >
-            <option value="">Select a Grade</option>
-            {studyPlanGrades.map((grade) => (
-              <option key={grade} value={grade}>Grade {grade}</option>
-            ))}
-          </select>
-        </>
-      )}
-    </div>
+      <div className="grades-selector">
+        <h2 className="font-serif text-xl text-book-leather mb-4">{t('select_grade')}:</h2>
+        <motion.div 
+          className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3"
+          variants={containerVariants}
+        >
+          {grades.map((grade) => (
+            <motion.button
+              key={grade.id}
+              variants={itemVariants}
+              className={`flex flex-col items-center justify-center px-6 py-3 rounded-lg transition-all h-[4.5rem] ${
+                currentGrade === grade.id
+                  ? 'bg-primary-600 text-white shadow-lg'
+                  : 'bg-white/80 text-book-leather hover:bg-primary-100 hover:shadow-md'
+              }`}
+              onClick={() => handleGradeSelect(grade.id)}
+              whileHover={{ scale: 1.02, transition: { type: "spring", stiffness: 400 } }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <span className="font-serif text-lg leading-tight">{grade.display.top}</span>
+              {grade.display.bottom && (
+                <span className="font-serif text-lg leading-tight mt-1">{grade.display.bottom}</span>
+              )}
+            </motion.button>
+          ))}
+        </motion.div>
+      </div>
+    </motion.div>
   );
 };
 

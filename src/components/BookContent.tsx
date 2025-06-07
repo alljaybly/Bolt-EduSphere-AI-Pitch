@@ -4,10 +4,10 @@ import { useAppStore } from '../store/useAppStore';
 import SubjectSelector from './SubjectSelector';
 import ProblemGenerator from './ProblemGenerator';
 import ProgressTracker from './ProgressTracker';
-import MatricTab from './MatricTab/MatricTab';
+import MatricTab from './MatricTab';
 import PromptMasterTab from './PromptMasterTab';
-import CodingEducation from './CodingEducation/CodingEducation';
-import PlayLearnTab from './PlayLearnTab/PlayLearnTab';
+import CodingEducation from './CodingEducation';
+import PlayLearnTab from './PlayLearnTab';
 import TabSelector from './TabSelector';
 
 const BookContent: React.FC = () => {
