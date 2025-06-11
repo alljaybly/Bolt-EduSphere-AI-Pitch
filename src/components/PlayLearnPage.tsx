@@ -140,11 +140,27 @@ const PersonalizedLearningPath = ({
         })
       });
 
-      const result = await response.json();
-
+      let result;
+      
+      // Check if response is successful before parsing JSON
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to fetch personalized content');
+        // Try to parse error response as JSON, fallback to text if that fails
+        try {
+          result = await response.json();
+          throw new Error(result.message || `Server error: ${response.status} ${response.statusText}`);
+        } catch (jsonError) {
+          // If JSON parsing fails, try to get text response
+          try {
+            const textResponse = await response.text();
+            throw new Error(textResponse || `Server error: ${response.status} ${response.statusText}`);
+          } catch (textError) {
+            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+          }
+        }
       }
+
+      // Parse successful response
+      result = await response.json();
 
       if (result.success) {
         setRecommendations(result.data.recommendations);
@@ -625,11 +641,27 @@ const ContentGenerator = ({
         })
       });
 
-      const result = await response.json();
-
+      let result;
+      
+      // Check if response is successful before parsing JSON
       if (!response.ok) {
-        throw new Error(result.message || 'Failed to generate content');
+        // Try to parse error response as JSON, fallback to text if that fails
+        try {
+          result = await response.json();
+          throw new Error(result.message || `Server error: ${response.status} ${response.statusText}`);
+        } catch (jsonError) {
+          // If JSON parsing fails, try to get text response
+          try {
+            const textResponse = await response.text();
+            throw new Error(textResponse || `Server error: ${response.status} ${response.statusText}`);
+          } catch (textError) {
+            throw new Error(`Server error: ${response.status} ${response.statusText}`);
+          }
+        }
       }
+
+      // Parse successful response
+      result = await response.json();
 
       if (result.success) {
         setGeneratedContent(result.content);
