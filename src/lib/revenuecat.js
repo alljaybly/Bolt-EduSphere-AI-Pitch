@@ -4,8 +4,9 @@
  * World's Largest Hackathon Project - EduSphere AI
  */
 
-// RevenueCat configuration
-const REVENUECAT_API_KEY = 'sk_5b90f0883a3b75fcee4c72d14d73a042b325f02f554f0b04';
+// RevenueCat configuration - Using public key for client-side usage
+// TODO: Replace with your actual public API key from RevenueCat dashboard (starts with pk_)
+const REVENUECAT_API_KEY = 'pk_your_public_key_here';
 const REVENUECAT_BASE_URL = 'https://api.revenuecat.com/v1';
 
 // Local storage keys for persistent user data
@@ -60,6 +61,12 @@ function getUserId() {
  */
 async function makeRevenueCatRequest(endpoint, method = 'GET', data = null) {
   try {
+    // Check if API key is properly configured
+    if (REVENUECAT_API_KEY === 'pk_your_public_key_here') {
+      console.warn('RevenueCat API key not configured, using mock data');
+      return getMockSubscriptionData();
+    }
+    
     const url = `${REVENUECAT_BASE_URL}${endpoint}`;
     
     const options = {
