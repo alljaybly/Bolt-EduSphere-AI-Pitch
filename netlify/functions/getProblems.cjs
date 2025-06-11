@@ -388,9 +388,9 @@ exports.handler = async (event, context) => {
     // Get query parameters with defaults
     const queryParams = event.queryStringParameters || {};
     
-    // Set default grade if not provided
+    // Set default grade if not provided - use grade1-6 instead of kindergarten for broader appeal
     if (!queryParams.grade) {
-      queryParams.grade = 'kindergarten';
+      queryParams.grade = 'grade1-6';
     }
 
     // Validate query parameters
@@ -477,7 +477,7 @@ exports.handler = async (event, context) => {
   } catch (error) {
     console.error('Function execution error:', error);
     
-    // Return a proper JSON error response
+    // Return a proper JSON error response instead of HTML
     return {
       statusCode: 500,
       headers: {
