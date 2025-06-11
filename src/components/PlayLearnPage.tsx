@@ -16,7 +16,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Paddle } from '@paddle/paddle-js';
+import Paddle from '@paddle/paddle-js';
 import { hasPremiumAccess, getSubscriptionStatus } from '../lib/revenuecat.js';
 
 // Paddle configuration
@@ -213,7 +213,7 @@ const PremiumModal = ({
               Maybe later
             </button>
           </div>
-        </motion.div>
+        </div>
       </motion.div>
     </AnimatePresence>
   );
@@ -259,7 +259,7 @@ const PlayLearnPage: React.FC = () => {
   const [droppedItems, setDroppedItems] = useState<string[]>([]);
   const [isPremium, setIsPremium] = useState(false);
   const [showPremiumModal, setShowPremiumModal] = useState(false);
-  const [paddle, setPaddle] = useState<Paddle | null>(null);
+  const [paddle, setPaddle] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
 
