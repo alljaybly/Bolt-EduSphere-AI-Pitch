@@ -1,12 +1,12 @@
 /**
- * RevenueCat Integration for EduSphere AI (Client-Side)
- * Handles user identification and communicates with backend for subscription checks
+ * RevenueCat Integration for EduSphere AI
+ * Handles subscription management and user identification
  * World's Largest Hackathon Project - EduSphere AI
  */
 
-// RevenueCat configuration - Using public key for client-side usage
-// TODO: Replace with your actual public API key from RevenueCat dashboard (starts with pk_)
-const REVENUECAT_PUBLIC_KEY = 'pk_your_public_key_here';
+// RevenueCat configuration
+const REVENUECAT_API_KEY = 'sk_5b90f0883a3b75fcee4c72d14d73a042b325f02f554f0b04';
+const REVENUECAT_BASE_URL = 'https://api.revenuecat.com/v1';
 
 // Local storage keys for persistent user data
 const USER_ID_KEY = 'edusphere_user_id';
@@ -51,20 +51,72 @@ function getUserId() {
 }
 
 /**
+ * Make authenticated request to RevenueCat REST API
+ * Handles proper headers and error responses
+ * @param {string} endpoint - API endpoint (e.g., '/subscribers/user123')
+ * @param {string} method - HTTP method (GET, POST, PUT, DELETE)
+ * @param {Object} data - Request body data for POST/PUT requests
+ * @returns {Promise<Object>} API response data
+ */
+async function makeRevenueCatRequest(endpoint, method = 'GET', data = null) {
+  try {
+    const url = `${REVENUECAT_BASE_URL}${endpoint}`;
+    
+    const options = {
+      method,
+      headers: {
+        'Authorization': `Bearer ${REVENUECAT_API_KEY}`,
+        'Content-Type': 'application/json',
+        'X-Platform': 'web',
+      },
+    };
+    
+    // Add request body for POST/PUT requests
+    if (data && method !== 'GET') {
+      options.body = JSON.stringify(data);
+    }
+    
+    console.log(`Making RevenueCat ${method} request to:`, url);
+    
+    const response = await fetch(url, options);
+    
+    // Handle different response status codes
+    if (response.status === 404) {
+      // User not found - this is normal for new users
+      return { subscriber: null, isNewUser: true };
+    }
+    
+    if (!response.ok) {
+      throw new Error(`RevenueCat API error: ${response.status} ${response.statusText}`);
+    }
+    
+    const responseData = await response.json();
+    return responseData;
+    
+  } catch (error) {
+    console.error('RevenueCat API request failed:', error);
+    
+    // Return mock data for development/fallback scenarios
+    return getMockSubscriptionData();
+  }
+}
+
+/**
  * Get mock subscription data for fallback scenarios
- * Used when backend is unavailable or for development
+ * Used when RevenueCat API is unavailable or for development
  * @returns {Object} Mock subscription data structure
  */
 function getMockSubscriptionData() {
   return {
-    isActive: false,
-    isPremium: false,
-    isSubscribed: false,
-    expirationDate: null,
-    productId: null,
-    originalPurchaseDate: null,
-    isMockData: true,
-    timestamp: new Date().toISOString()
+    subscriber: {
+      subscriptions: {},
+      entitlements: {
+        // Mock free tier - no premium entitlements
+      },
+      original_purchase_date: new Date().toISOString(),
+      first_seen: new Date().toISOString(),
+    },
+    isMockData: true
   };
 }
 
@@ -77,12 +129,6 @@ async function initializeRevenueCat() {
   try {
     console.log('Initializing RevenueCat for EduSphere AI...');
     
-    // Check if public API key is configured
-    if (REVENUECAT_PUBLIC_KEY === 'pk_your_public_key_here') {
-      console.warn('RevenueCat public API key not configured, using mock mode');
-      window.revenueCatMockMode = true;
-    }
-    
     // Get or create anonymous user ID
     const userId = getUserId();
     
@@ -90,11 +136,24 @@ async function initializeRevenueCat() {
     window.revenueCatInitialized = true;
     window.revenueCatUserId = userId;
     
+    // Attempt to fetch existing subscriber data
+    try {
+      const subscriberData = await makeRevenueCatRequest(`/subscribers/${userId}`);
+      
+      if (subscriberData.isNewUser) {
+        console.log('New user detected, will create subscriber on first purchase');
+      } else {
+        console.log('Existing subscriber found:', subscriberData.subscriber?.original_purchase_date);
+      }
+      
+    } catch (error) {
+      console.log('Could not fetch subscriber data, will create on first interaction:', error.message);
+    }
+    
     return {
       success: true,
       userId: userId,
       initialized: true,
-      mockMode: window.revenueCatMockMode || false,
       timestamp: new Date().toISOString()
     };
     
@@ -116,7 +175,7 @@ async function initializeRevenueCat() {
 }
 
 /**
- * Check current subscription status for the user via backend function
+ * Check current subscription status for the user
  * Implements caching to reduce API calls and improve performance
  * @param {boolean} forceRefresh - Skip cache and fetch fresh data
  * @returns {Promise<Object>} Subscription status object
@@ -136,48 +195,23 @@ async function checkSubscription(forceRefresh = false) {
     
     console.log('Fetching fresh subscription status for user:', userId);
     
+    let subscriptionData;
+    
     // Use mock data if RevenueCat is in mock mode
     if (window.revenueCatMockMode) {
-      const mockStatus = getMockSubscriptionData();
-      cacheSubscriptionStatus(mockStatus);
-      return mockStatus;
+      subscriptionData = getMockSubscriptionData();
+    } else {
+      // Make actual API call to RevenueCat
+      subscriptionData = await makeRevenueCatRequest(`/subscribers/${userId}`);
     }
     
-    // Call backend function to check subscription securely
-    try {
-      const response = await fetch('/.netlify/functions/checkSubscription', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': userId
-        },
-        body: JSON.stringify({
-          user_id: userId
-        })
-      });
-      
-      if (!response.ok) {
-        throw new Error(`Backend subscription check failed: ${response.status}`);
-      }
-      
-      const result = await response.json();
-      
-      if (result.success) {
-        // Cache the result for future use
-        cacheSubscriptionStatus(result.data);
-        return result.data;
-      } else {
-        throw new Error(result.error || 'Subscription check failed');
-      }
-      
-    } catch (backendError) {
-      console.error('Backend subscription check failed:', backendError);
-      
-      // Fallback to mock data if backend is unavailable
-      const fallbackStatus = getMockSubscriptionData();
-      fallbackStatus.error = backendError.message;
-      return fallbackStatus;
-    }
+    // Parse subscription status from RevenueCat response
+    const status = parseSubscriptionStatus(subscriptionData);
+    
+    // Cache the result for future use
+    cacheSubscriptionStatus(status);
+    
+    return status;
     
   } catch (error) {
     console.error('Failed to check subscription status:', error);
@@ -193,6 +227,62 @@ async function checkSubscription(forceRefresh = false) {
       timestamp: new Date().toISOString()
     };
   }
+}
+
+/**
+ * Parse subscription status from RevenueCat API response
+ * Extracts relevant subscription information and determines access levels
+ * @param {Object} subscriptionData - Raw RevenueCat API response
+ * @returns {Object} Parsed subscription status
+ */
+function parseSubscriptionStatus(subscriptionData) {
+  const status = {
+    isActive: false,
+    isPremium: false,
+    isSubscribed: false,
+    expirationDate: null,
+    productId: null,
+    originalPurchaseDate: null,
+    isMockData: subscriptionData.isMockData || false,
+    timestamp: new Date().toISOString()
+  };
+  
+  // Handle case where user doesn't exist yet
+  if (!subscriptionData.subscriber) {
+    return status;
+  }
+  
+  const { subscriber } = subscriptionData;
+  
+  // Check for premium entitlements
+  if (subscriber.entitlements && subscriber.entitlements.premium) {
+    const premium = subscriber.entitlements.premium;
+    
+    status.isPremium = true;
+    status.productId = premium.product_identifier;
+    status.expirationDate = premium.expires_date;
+    
+    // Check if subscription is currently active
+    if (!premium.expires_date) {
+      // No expiration date means lifetime or active subscription
+      status.isActive = true;
+      status.isSubscribed = true;
+    } else {
+      // Check if subscription hasn't expired
+      const expirationTime = new Date(premium.expires_date).getTime();
+      const currentTime = new Date().getTime();
+      
+      status.isActive = expirationTime > currentTime;
+      status.isSubscribed = true;
+    }
+  }
+  
+  // Store original purchase date if available
+  if (subscriber.original_purchase_date) {
+    status.originalPurchaseDate = subscriber.original_purchase_date;
+  }
+  
+  return status;
 }
 
 /**
@@ -282,6 +372,42 @@ function clearUserData() {
 }
 
 /**
+ * Create or update subscriber in RevenueCat
+ * Used when user makes their first purchase or updates information
+ * @param {Object} subscriberData - Subscriber information
+ * @returns {Promise<Object>} Creation/update result
+ */
+async function createOrUpdateSubscriber(subscriberData = {}) {
+  try {
+    const userId = getUserId();
+    
+    const data = {
+      app_user_id: userId,
+      ...subscriberData
+    };
+    
+    const response = await makeRevenueCatRequest(`/subscribers/${userId}`, 'POST', data);
+    
+    // Clear cached status to force refresh
+    localStorage.removeItem(SUBSCRIPTION_STATUS_KEY);
+    
+    return {
+      success: true,
+      subscriber: response.subscriber,
+      timestamp: new Date().toISOString()
+    };
+    
+  } catch (error) {
+    console.error('Failed to create/update subscriber:', error);
+    return {
+      success: false,
+      error: error.message,
+      timestamp: new Date().toISOString()
+    };
+  }
+}
+
+/**
  * Log subscription event for analytics
  * @param {string} eventType - Type of subscription event
  * @param {Object} eventData - Additional event data
@@ -309,6 +435,7 @@ export {
   hasPremiumAccess,
   getCurrentUserId,
   clearUserData,
+  createOrUpdateSubscriber,
   logSubscriptionEvent
 };
 
@@ -317,9 +444,6 @@ initializeRevenueCat()
   .then((result) => {
     if (result.success) {
       console.log('RevenueCat initialized successfully for user:', result.userId);
-      if (result.mockMode) {
-        console.log('Running in mock mode - configure RevenueCat public key for production');
-      }
     } else {
       console.log('RevenueCat initialization failed, using mock mode:', result.error);
     }
