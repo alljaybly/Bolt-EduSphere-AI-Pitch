@@ -16,7 +16,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { initPaddle, Paddle } from '@paddle/paddle-js';
+import { Paddle } from '@paddle/paddle-js';
 import { hasPremiumAccess, getSubscriptionStatus } from '../lib/revenuecat.js';
 
 // Paddle configuration
@@ -321,7 +321,7 @@ const PlayLearnPage: React.FC = () => {
         setIsLoading(true);
 
         // Initialize Paddle
-        const paddleInstance = await initPaddle({
+        const paddleInstance = await Paddle.init({
           environment: 'sandbox', // Use 'production' for live
           seller: PADDLE_SELLER_ID,
           token: PADDLE_TOKEN,
