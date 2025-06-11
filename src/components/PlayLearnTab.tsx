@@ -5,7 +5,7 @@ const PlayLearnTab = () => {
   useEffect(() => {
     async function fetchProblem() {
       try {
-        const response = await fetch('/.netlify/functions/getProblems?grade=1');
+        const response = await fetch('/.netlify/functions/getProblems?grade=kindergarten');
         const data = await response.json();
         setProblem(data);
       } catch (error) {
