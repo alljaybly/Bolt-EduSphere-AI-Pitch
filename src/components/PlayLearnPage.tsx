@@ -213,7 +213,7 @@ const PremiumModal = ({
               Maybe later
             </button>
           </div>
-        </div>
+        </motion.div>
       </motion.div>
     </AnimatePresence>
   );
