@@ -81,7 +81,7 @@ async function seedSampleProblems() {
         grade: 'kindergarten',
         question: 'What is 1 + 1?',
         answer: '2',
-        options: JSON.stringify(['1', '2', '3', '4']),
+        options: ['1', '2', '3', '4'],
         hint: 'Count on your fingers!',
         difficulty_level: 1,
         topic: 'Basic Addition'
@@ -91,7 +91,7 @@ async function seedSampleProblems() {
         grade: 'kindergarten',
         question: 'What letter does "Apple" start with?',
         answer: 'A',
-        options: JSON.stringify(['A', 'B', 'C', 'D']),
+        options: ['A', 'B', 'C', 'D'],
         hint: 'Think about the first sound you hear!',
         difficulty_level: 1,
         topic: 'Letter Recognition'
@@ -112,7 +112,7 @@ async function seedSampleProblems() {
         grade: 'grade1-6',
         question: 'What do plants need to make their own food?',
         answer: 'sunlight',
-        options: JSON.stringify(['sunlight', 'darkness', 'cold', 'noise']),
+        options: ['sunlight', 'darkness', 'cold', 'noise'],
         hint: 'Think about what makes plants green and healthy!',
         difficulty_level: 2,
         topic: 'Photosynthesis'
@@ -136,48 +136,6 @@ async function seedSampleProblems() {
         hint: 'Speed = Distance ÷ Time',
         difficulty_level: 3,
         topic: 'Speed and Velocity'
-      },
-      
-      // Grade 10-12 problems
-      {
-        subject: 'math',
-        grade: 'grade10-12',
-        question: 'What is the derivative of x² + 3x + 2?',
-        answer: '2x + 3',
-        hint: 'Use the power rule: d/dx(xⁿ) = nxⁿ⁻¹',
-        difficulty_level: 4,
-        topic: 'Calculus - Derivatives'
-      },
-      {
-        subject: 'coding',
-        grade: 'grade10-12',
-        question: 'What is the time complexity of binary search?',
-        answer: 'O(log n)',
-        options: JSON.stringify(['O(1)', 'O(log n)', 'O(n)', 'O(n²)']),
-        hint: 'Think about how the search space is divided in each step.',
-        difficulty_level: 4,
-        topic: 'Algorithm Analysis'
-      },
-      
-      // Matric problems
-      {
-        subject: 'math',
-        grade: 'matric',
-        question: 'Find the integral of 2x + 1 dx',
-        answer: 'x² + x + C',
-        hint: 'Remember to add the constant of integration!',
-        difficulty_level: 5,
-        topic: 'Calculus - Integration'
-      },
-      {
-        subject: 'english',
-        grade: 'matric',
-        question: 'Identify the literary device: "The wind whispered through the trees"',
-        answer: 'personification',
-        options: JSON.stringify(['metaphor', 'simile', 'personification', 'alliteration']),
-        hint: 'The wind is given human characteristics.',
-        difficulty_level: 4,
-        topic: 'Literary Devices'
       }
     ];
 
@@ -190,7 +148,7 @@ async function seedSampleProblems() {
           ${problem.grade}, 
           ${problem.question}, 
           ${problem.answer}, 
-          ${problem.options}, 
+          ${JSON.stringify(problem.options)}, 
           ${problem.hint}, 
           ${problem.difficulty_level}, 
           ${problem.topic}
@@ -225,71 +183,78 @@ async function getProblems(filters = {}) {
 
     console.log('Fetching problems with filters:', filters);
 
-    let query = `
-      SELECT 
-        id,
-        subject,
-        grade,
-        question,
-        answer,
-        options,
-        hint,
-        difficulty_level,
-        topic,
-        created_at
-      FROM problems
-      WHERE 1=1
-    `;
+    // Build query dynamically based on filters
+    let whereConditions = [];
+    let queryParams = [];
 
-    const params = [];
-    let paramIndex = 1;
-
-    // Add grade filter
     if (grade) {
-      query += ` AND grade = $${paramIndex}`;
-      params.push(grade);
-      paramIndex++;
+      whereConditions.push(`grade = $${queryParams.length + 1}`);
+      queryParams.push(grade);
     }
 
-    // Add subject filter
     if (subject) {
-      query += ` AND subject = $${paramIndex}`;
-      params.push(subject);
-      paramIndex++;
+      whereConditions.push(`subject = $${queryParams.length + 1}`);
+      queryParams.push(subject);
     }
 
-    // Add difficulty level filter
     if (difficulty_level) {
-      query += ` AND difficulty_level = $${paramIndex}`;
-      params.push(parseInt(difficulty_level));
-      paramIndex++;
+      whereConditions.push(`difficulty_level = $${queryParams.length + 1}`);
+      queryParams.push(parseInt(difficulty_level));
     }
 
-    // Add topic filter
     if (topic) {
-      query += ` AND topic ILIKE $${paramIndex}`;
-      params.push(`%${topic}%`);
-      paramIndex++;
+      whereConditions.push(`topic ILIKE $${queryParams.length + 1}`);
+      queryParams.push(`%${topic}%`);
     }
 
-    // Add ordering
-    if (random) {
-      query += ` ORDER BY RANDOM()`;
+    // Construct the WHERE clause
+    const whereClause = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+    // Construct ORDER BY clause
+    const orderClause = random ? 'ORDER BY RANDOM()' : 'ORDER BY created_at DESC';
+
+    // Add LIMIT and OFFSET
+    const limitClause = `LIMIT $${queryParams.length + 1} OFFSET $${queryParams.length + 2}`;
+    queryParams.push(parseInt(limit), parseInt(offset));
+
+    // Execute query using neon sql template
+    let problems;
+    if (whereConditions.length === 0) {
+      // No filters - simple query
+      if (random) {
+        problems = await sql`
+          SELECT id, subject, grade, question, answer, options, hint, difficulty_level, topic, created_at
+          FROM problems
+          ORDER BY RANDOM()
+          LIMIT ${parseInt(limit)}
+          OFFSET ${parseInt(offset)}
+        `;
+      } else {
+        problems = await sql`
+          SELECT id, subject, grade, question, answer, options, hint, difficulty_level, topic, created_at
+          FROM problems
+          ORDER BY created_at DESC
+          LIMIT ${parseInt(limit)}
+          OFFSET ${parseInt(offset)}
+        `;
+      }
     } else {
-      query += ` ORDER BY created_at DESC`;
+      // With filters - use dynamic query construction
+      const fullQuery = `
+        SELECT id, subject, grade, question, answer, options, hint, difficulty_level, topic, created_at
+        FROM problems
+        ${whereClause}
+        ${orderClause}
+        ${limitClause}
+      `;
+      
+      problems = await sql.unsafe(fullQuery, queryParams);
     }
-
-    // Add pagination
-    query += ` LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
-    params.push(parseInt(limit), parseInt(offset));
-
-    // Execute query using template literal with spread parameters
-    const problems = await sql.unsafe(query, params);
 
     // Parse JSON options if they exist
     const formattedProblems = problems.map(problem => ({
       ...problem,
-      options: problem.options ? JSON.parse(problem.options) : null,
+      options: problem.options ? (typeof problem.options === 'string' ? JSON.parse(problem.options) : problem.options) : null,
       difficulty_level: parseInt(problem.difficulty_level)
     }));
 
@@ -313,55 +278,6 @@ async function getRandomProblem(filters = {}) {
     return problems.length > 0 ? problems[0] : null;
   } catch (error) {
     console.error('Failed to get random problem:', error);
-    throw error;
-  }
-}
-
-/**
- * Get problem statistics
- * @param {Object} filters - Query filters
- * @returns {Promise<Object>} Statistics object
- */
-async function getProblemStats(filters = {}) {
-  try {
-    const { grade, subject } = filters;
-
-    let query = `
-      SELECT 
-        COUNT(*) as total_problems,
-        COUNT(DISTINCT subject) as subjects_count,
-        COUNT(DISTINCT grade) as grades_count,
-        AVG(difficulty_level) as avg_difficulty
-      FROM problems
-      WHERE 1=1
-    `;
-
-    const params = [];
-    let paramIndex = 1;
-
-    if (grade) {
-      query += ` AND grade = $${paramIndex}`;
-      params.push(grade);
-      paramIndex++;
-    }
-
-    if (subject) {
-      query += ` AND subject = $${paramIndex}`;
-      params.push(subject);
-      paramIndex++;
-    }
-
-    const stats = await sql.unsafe(query, params);
-    
-    return {
-      total_problems: parseInt(stats[0].total_problems),
-      subjects_count: parseInt(stats[0].subjects_count),
-      grades_count: parseInt(stats[0].grades_count),
-      avg_difficulty: parseFloat(stats[0].avg_difficulty || 0).toFixed(2)
-    };
-
-  } catch (error) {
-    console.error('Failed to get problem stats:', error);
     throw error;
   }
 }
@@ -449,12 +365,34 @@ exports.handler = async (event, context) => {
   }
 
   try {
+    // Check if database URL is configured
+    if (!process.env.DATABASE_URL && !process.env.NEON_DATABASE_URL) {
+      console.error('Database URL not configured');
+      return {
+        statusCode: 500,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          success: false,
+          error: 'Database configuration missing',
+          message: 'DATABASE_URL or NEON_DATABASE_URL environment variable not set',
+        }),
+      };
+    }
+
     // Initialize database tables
     await initializeProblemsTable();
 
-    // Get query parameters
+    // Get query parameters with defaults
     const queryParams = event.queryStringParameters || {};
     
+    // Set default grade if not provided
+    if (!queryParams.grade) {
+      queryParams.grade = 'kindergarten';
+    }
+
     // Validate query parameters
     const validation = validateQueryParams(queryParams);
     if (!validation.isValid) {
@@ -484,24 +422,7 @@ exports.handler = async (event, context) => {
     };
 
     // Handle different request types
-    if (queryParams.action === 'stats') {
-      // Get statistics
-      const stats = await getProblemStats(filters);
-      
-      return {
-        statusCode: 200,
-        headers: {
-          ...corsHeaders,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          success: true,
-          data: stats,
-          timestamp: new Date().toISOString(),
-        }),
-      };
-      
-    } else if (queryParams.action === 'random') {
+    if (queryParams.action === 'random') {
       // Get single random problem
       const problem = await getRandomProblem(filters);
       
@@ -515,6 +436,7 @@ exports.handler = async (event, context) => {
           body: JSON.stringify({
             success: false,
             error: 'No problems found matching the criteria',
+            filters: filters,
           }),
         };
       }
@@ -555,6 +477,7 @@ exports.handler = async (event, context) => {
   } catch (error) {
     console.error('Function execution error:', error);
     
+    // Return a proper JSON error response
     return {
       statusCode: 500,
       headers: {
@@ -564,8 +487,12 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: false,
         error: 'Internal server error',
-        message: 'An unexpected error occurred while fetching problems',
+        message: error.message || 'An unexpected error occurred while fetching problems',
         timestamp: new Date().toISOString(),
+        debug: {
+          errorType: error.constructor.name,
+          stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+        }
       }),
     };
   }
