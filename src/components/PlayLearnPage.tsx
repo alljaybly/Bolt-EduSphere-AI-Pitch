@@ -600,15 +600,18 @@ const PlayLearnPage: React.FC = () => {
   ];
 
   /**
-   * Initialize premium status check
+   * Initialize premium status check using secure backend function
    */
   useEffect(() => {
     const checkPremiumStatus = async () => {
       try {
         setIsLoading(true);
+        
+        // Use the updated hasPremiumAccess function that calls backend
         const premiumStatus = await hasPremiumAccess();
         setIsPremium(premiumStatus);
-        console.log('Premium status:', premiumStatus);
+        
+        console.log('Premium status checked via backend:', premiumStatus);
       } catch (error) {
         console.error('Failed to check premium status:', error);
         setIsPremium(false);
