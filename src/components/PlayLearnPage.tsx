@@ -18,15 +18,7 @@ import {
   GraduationCap,
   Loader2,
   Crown,
-  Lock,
-  Target,
-  TrendingUp,
-  Brain,
-  ArrowRight,
-  Star,
-  Award,
-  Clock,
-  RefreshCw
+  Lock
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { hasPremiumAccess, getCurrentUserId } from '../lib/revenuecat.js';
@@ -96,467 +88,6 @@ const DropZone = ({ onDrop }: { onDrop: (item: any) => void }) => {
         Drop blocks here to build your game!
       </p>
     </motion.div>
-  );
-};
-
-/**
- * Personalized Learning Path Component
- * Displays AI-powered learning recommendations based on user progress
- */
-const PersonalizedLearningPath = ({ 
-  isPremium, 
-  onUpgradeClick 
-}: { 
-  isPremium: boolean; 
-  onUpgradeClick: () => void;
-}) => {
-  const [recommendations, setRecommendations] = useState<any>(null);
-  const [progressSummary, setProgressSummary] = useState<any>(null);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
-
-  /**
-   * Fetch personalized learning recommendations from backend
-   */
-  const fetchPersonalizedContent = async (subject?: string, grade?: string) => {
-    setIsLoading(true);
-    setError(null);
-
-    try {
-      const userId = getCurrentUserId();
-      
-      // Call personalization backend function
-      const response = await fetch('/.netlify/functions/personalizeContent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': userId
-        },
-        body: JSON.stringify({
-          user_id: userId,
-          subject,
-          grade
-        })
-      });
-
-      let result;
-      
-      // Check if response is successful before parsing JSON
-      if (!response.ok) {
-        // Try to parse error response as JSON, fallback to text if that fails
-        try {
-          result = await response.json();
-          throw new Error(result.message || `Server error: ${response.status} ${response.statusText}`);
-        } catch (jsonError) {
-          // If JSON parsing fails, try to get text response
-          try {
-            const textResponse = await response.text();
-            throw new Error(textResponse || `Server error: ${response.status} ${response.statusText}`);
-          } catch (textError) {
-            throw new Error(`Server error: ${response.status} ${response.statusText}`);
-          }
-        }
-      }
-
-      // Parse successful response
-      result = await response.json();
-
-      if (result.success) {
-        setRecommendations(result.data.recommendations);
-        setProgressSummary(result.data.progressSummary);
-        setLastUpdated(new Date());
-        console.log('Personalized content fetched successfully');
-      } else {
-        throw new Error(result.message || 'Personalization failed');
-      }
-
-    } catch (error) {
-      console.error('Personalization error:', error);
-      setError(error.message || 'Failed to fetch personalized content. Please try again.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  /**
-   * Initialize personalized content on component mount
-   */
-  useEffect(() => {
-    fetchPersonalizedContent();
-  }, []);
-
-  /**
-   * Handle next lesson button click
-   */
-  const handleNextLesson = () => {
-    if (recommendations?.nextLesson) {
-      fetchPersonalizedContent(
-        recommendations.nextLesson.subject,
-        recommendations.nextLesson.grade
-      );
-    } else {
-      fetchPersonalizedContent();
-    }
-  };
-
-  /**
-   * Render premium upgrade prompt for free users
-   */
-  if (!isPremium) {
-    return (
-      <div className="relative">
-        <div className="filter blur-sm pointer-events-none">
-          <PersonalizedContentDisplay />
-        </div>
-        <div className="absolute inset-0 bg-black/20 flex items-center justify-center rounded-lg">
-          <motion.button
-            onClick={onUpgradeClick}
-            className="bg-gradient-to-r from-purple-500 to-blue-500 text-white px-6 py-3 rounded-full font-semibold shadow-lg flex items-center"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Lock className="mr-2" size={20} />
-            Unlock AI Learning Path
-          </motion.button>
-        </div>
-      </div>
-    );
-  }
-
-  /**
-   * Mock display component for blur effect
-   */
-  function PersonalizedContentDisplay() {
-    return (
-      <div className="space-y-6">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="bg-gradient-to-r from-purple-500 to-blue-500 p-2 rounded-full mr-3">
-              <Brain className="text-white" size={20} />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">Your Learning Path</h3>
-              <p className="text-sm text-gray-600">AI-powered recommendations</p>
-            </div>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-blue-50 p-4 rounded-lg">
-            <h4 className="font-semibold text-blue-800 mb-2">Next Lesson</h4>
-            <p className="text-sm text-blue-600">Mathematics - Fractions</p>
-          </div>
-          <div className="bg-green-50 p-4 rounded-lg">
-            <h4 className="font-semibold text-green-800 mb-2">Progress</h4>
-            <p className="text-sm text-green-600">85% accuracy this week</p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center">
-          <div className="bg-gradient-to-r from-purple-500 to-blue-500 p-2 rounded-full mr-3">
-            <Brain className="text-white" size={20} />
-          </div>
-          <div>
-            <h3 className="text-lg font-semibold text-gray-800">Your Personalized Learning Path</h3>
-            <p className="text-sm text-gray-600">
-              {isPremium ? 'AI-powered recommendations by Claude Sonnet 4' : 'Basic recommendations'}
-            </p>
-          </div>
-        </div>
-        
-        {lastUpdated && (
-          <div className="text-xs text-gray-500 flex items-center">
-            <Clock className="mr-1" size={12} />
-            Updated {lastUpdated.toLocaleTimeString()}
-          </div>
-        )}
-      </div>
-
-      {/* Loading State */}
-      {isLoading && (
-        <motion.div
-          className="flex items-center justify-center py-8"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-        >
-          <div className="text-center">
-            <Loader2 className="animate-spin mx-auto mb-2 text-blue-600" size={32} />
-            <p className="text-gray-600">
-              {isPremium ? 'Analyzing your progress with AI...' : 'Generating recommendations...'}
-            </p>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Error State */}
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-red-50 border border-red-200 rounded-lg"
-        >
-          <p className="text-red-700 text-sm">{error}</p>
-          <motion.button
-            onClick={() => fetchPersonalizedContent()}
-            className="mt-2 px-3 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600 transition-colors"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            Try Again
-          </motion.button>
-        </motion.div>
-      )}
-
-      {/* Progress Summary */}
-      {progressSummary && !isLoading && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="grid grid-cols-1 md:grid-cols-3 gap-4"
-        >
-          <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-blue-600 font-medium">Total Attempts</p>
-                <p className="text-2xl font-bold text-blue-800">{progressSummary.totalAttempted}</p>
-              </div>
-              <Target className="text-blue-500" size={24} />
-            </div>
-          </div>
-          
-          <div className="bg-green-50 p-4 rounded-lg border border-green-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-green-600 font-medium">Overall Accuracy</p>
-                <p className="text-2xl font-bold text-green-800">
-                  {progressSummary.overallAccuracy.toFixed(1)}%
-                </p>
-              </div>
-              <TrendingUp className="text-green-500" size={24} />
-            </div>
-          </div>
-          
-          <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-purple-600 font-medium">Consistency</p>
-                <p className="text-2xl font-bold text-purple-800">
-                  {progressSummary.consistencyScore.toFixed(0)}/100
-                </p>
-              </div>
-              <Award className="text-purple-500" size={24} />
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {/* Recommendations */}
-      {recommendations && !isLoading && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="space-y-6"
-        >
-          {/* Next Lesson Recommendation */}
-          {recommendations.nextLesson && (
-            <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border border-blue-200">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center">
-                  <div className="bg-blue-500 p-2 rounded-full mr-3">
-                    <BookOpen className="text-white" size={20} />
-                  </div>
-                  <div>
-                    <h4 className="text-lg font-semibold text-gray-800">Recommended Next Lesson</h4>
-                    <p className="text-sm text-gray-600">
-                      {recommendations.nextLesson.subject.charAt(0).toUpperCase() + 
-                       recommendations.nextLesson.subject.slice(1)} • 
-                      Difficulty: {recommendations.nextLesson.difficulty}/5
-                    </p>
-                  </div>
-                </div>
-                
-                <motion.button
-                  onClick={handleNextLesson}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition-colors flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  disabled={isLoading}
-                >
-                  <span className="mr-2">Start Lesson</span>
-                  <ArrowRight size={16} />
-                </motion.button>
-              </div>
-              
-              <h5 className="font-semibold text-gray-800 mb-2">{recommendations.nextLesson.topic}</h5>
-              
-              {recommendations.nextLesson.objectives && (
-                <div className="mb-4">
-                  <p className="text-sm font-medium text-gray-700 mb-2">Learning Objectives:</p>
-                  <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
-                    {recommendations.nextLesson.objectives.map((objective, index) => (
-                      <li key={index}>{objective}</li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-              
-              {recommendations.estimatedTime && (
-                <div className="flex items-center text-sm text-gray-600">
-                  <Clock className="mr-1" size={14} />
-                  Estimated time: {recommendations.estimatedTime}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Practice Problems */}
-          {recommendations.practiceProblems && recommendations.practiceProblems.length > 0 && (
-            <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
-              <div className="flex items-center mb-4">
-                <div className="bg-green-500 p-2 rounded-full mr-3">
-                  <Puzzle className="text-white" size={20} />
-                </div>
-                <h4 className="text-lg font-semibold text-gray-800">Recommended Practice Problems</h4>
-              </div>
-              
-              <div className="space-y-4">
-                {recommendations.practiceProblems.slice(0, 3).map((problem, index) => (
-                  <motion.div
-                    key={index}
-                    className="p-4 bg-gray-50 rounded-lg border border-gray-200"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-800 mb-2">
-                          Problem {index + 1}: {problem.question}
-                        </p>
-                        {problem.hint && (
-                          <p className="text-sm text-gray-600 italic">
-                            💡 Hint: {problem.hint}
-                          </p>
-                        )}
-                      </div>
-                      <div className="ml-4 flex items-center">
-                        <div className="flex">
-                          {[...Array(5)].map((_, i) => (
-                            <Star
-                              key={i}
-                              size={14}
-                              className={i < problem.difficulty 
-                                ? 'text-yellow-400 fill-current' 
-                                : 'text-gray-300'}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Motivational Message */}
-          {recommendations.motivationalMessage && (
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-gradient-to-r from-green-50 to-blue-50 p-6 rounded-xl border border-green-200"
-            >
-              <div className="flex items-start">
-                <div className="bg-green-500 p-2 rounded-full mr-4 mt-1">
-                  <Sparkles className="text-white" size={20} />
-                </div>
-                <div>
-                  <h4 className="text-lg font-semibold text-gray-800 mb-2">Keep Going!</h4>
-                  <p className="text-gray-700">{recommendations.motivationalMessage}</p>
-                </div>
-              </div>
-            </motion.div>
-          )}
-
-          {/* Study Tips */}
-          {recommendations.studyTips && recommendations.studyTips.length > 0 && (
-            <div className="bg-yellow-50 p-6 rounded-xl border border-yellow-200">
-              <div className="flex items-center mb-4">
-                <div className="bg-yellow-500 p-2 rounded-full mr-3">
-                  <GraduationCap className="text-white" size={20} />
-                </div>
-                <h4 className="text-lg font-semibold text-gray-800">Personalized Study Tips</h4>
-              </div>
-              
-              <ul className="space-y-2">
-                {recommendations.studyTips.map((tip, index) => (
-                  <motion.li
-                    key={index}
-                    className="flex items-start"
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                  >
-                    <div className="bg-yellow-400 rounded-full p-1 mr-3 mt-1">
-                      <Check className="text-white" size={12} />
-                    </div>
-                    <span className="text-gray-700">{tip}</span>
-                  </motion.li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Focus Areas */}
-          {recommendations.focusAreas && recommendations.focusAreas.length > 0 && (
-            <div className="bg-purple-50 p-6 rounded-xl border border-purple-200">
-              <div className="flex items-center mb-4">
-                <div className="bg-purple-500 p-2 rounded-full mr-3">
-                  <Target className="text-white" size={20} />
-                </div>
-                <h4 className="text-lg font-semibold text-gray-800">Focus Areas</h4>
-              </div>
-              
-              <div className="flex flex-wrap gap-2">
-                {recommendations.focusAreas.map((area, index) => (
-                  <motion.span
-                    key={index}
-                    className="px-3 py-1 bg-purple-100 text-purple-800 rounded-full text-sm font-medium"
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: index * 0.1 }}
-                  >
-                    {area}
-                  </motion.span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Refresh Button */}
-          <div className="flex justify-center">
-            <motion.button
-              onClick={() => fetchPersonalizedContent()}
-              className="flex items-center px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-500 text-white rounded-full hover:shadow-lg transition-all"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              disabled={isLoading}
-            >
-              <RefreshCw className={`mr-2 ${isLoading ? 'animate-spin' : ''}`} size={16} />
-              Get New Recommendations
-            </motion.button>
-          </div>
-        </motion.div>
-      )}
-    </div>
   );
 };
 
@@ -641,27 +172,11 @@ const ContentGenerator = ({
         })
       });
 
-      let result;
-      
-      // Check if response is successful before parsing JSON
-      if (!response.ok) {
-        // Try to parse error response as JSON, fallback to text if that fails
-        try {
-          result = await response.json();
-          throw new Error(result.message || `Server error: ${response.status} ${response.statusText}`);
-        } catch (jsonError) {
-          // If JSON parsing fails, try to get text response
-          try {
-            const textResponse = await response.text();
-            throw new Error(textResponse || `Server error: ${response.status} ${response.statusText}`);
-          } catch (textError) {
-            throw new Error(`Server error: ${response.status} ${response.statusText}`);
-          }
-        }
-      }
+      const result = await response.json();
 
-      // Parse successful response
-      result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.message || 'Failed to generate content');
+      }
 
       if (result.success) {
         setGeneratedContent(result.content);
@@ -925,7 +440,6 @@ const PremiumModal = ({
 
   const premiumFeatures = [
     'AI content generation with Claude Sonnet 4',
-    'Personalized learning paths with progress analysis',
     'AI-powered narration with ElevenLabs',
     'Interactive video content with Tavus',
     'Advanced coding blocks and challenges',
@@ -1086,18 +600,15 @@ const PlayLearnPage: React.FC = () => {
   ];
 
   /**
-   * Initialize premium status check using secure backend function
+   * Initialize premium status check
    */
   useEffect(() => {
     const checkPremiumStatus = async () => {
       try {
         setIsLoading(true);
-        
-        // Use the updated hasPremiumAccess function that calls backend
         const premiumStatus = await hasPremiumAccess();
         setIsPremium(premiumStatus);
-        
-        console.log('Premium status checked via backend:', premiumStatus);
+        console.log('Premium status:', premiumStatus);
       } catch (error) {
         console.error('Failed to check premium status:', error);
         setIsPremium(false);
@@ -1204,25 +715,12 @@ const PlayLearnPage: React.FC = () => {
 
       <h1 className="font-serif text-4xl text-blue-800 text-center mb-8">Play & Learn</h1>
 
-      {/* Personalized Learning Path Section */}
-      <motion.section
-        className="bg-white p-6 rounded-lg shadow-lg mb-8"
-        initial={{ y: 50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-      >
-        <PersonalizedLearningPath 
-          isPremium={isPremium} 
-          onUpgradeClick={() => setShowPremiumModal(true)} 
-        />
-      </motion.section>
-
       {/* AI Content Generator Section */}
       <motion.section
         className="bg-white p-6 rounded-lg shadow-lg mb-8"
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.1 }}
+        transition={{ duration: 0.5 }}
       >
         <h2 className="font-serif text-2xl text-green-700 mb-6 flex items-center">
           <Sparkles size={24} className="mr-2" /> AI Content Generator
@@ -1239,7 +737,7 @@ const PlayLearnPage: React.FC = () => {
         className="bg-white p-6 rounded-lg shadow-lg mb-8"
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.2 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
       >
         <h2 className="font-serif text-2xl text-green-700 mb-6 flex items-center">
           <Puzzle size={24} className="mr-2" /> Picture Slides
@@ -1261,7 +759,7 @@ const PlayLearnPage: React.FC = () => {
         className="bg-white p-6 rounded-lg shadow-lg mb-8"
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.3 }}
+        transition={{ duration: 0.5, delay: 0.2 }}
       >
         <h2 className="font-serif text-2xl text-green-700 mb-6 flex items-center">
           <Video size={24} className="mr-2" /> Learning Videos
@@ -1283,7 +781,7 @@ const PlayLearnPage: React.FC = () => {
         className="bg-white p-6 rounded-lg shadow-lg"
         initial={{ y: 50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5, delay: 0.4 }}
+        transition={{ duration: 0.5, delay: 0.3 }}
       >
         <h2 className="font-serif text-2xl text-green-700 mb-6 flex items-center">
           <Play size={24} className="mr-2" /> Drag & Drop Coding
