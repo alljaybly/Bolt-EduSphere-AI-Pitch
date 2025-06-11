@@ -19,20 +19,19 @@ import { useNavigate } from 'react-router-dom';
 import { Paddle } from '@paddle/paddle-js';
 import { hasPremiumAccess, getSubscriptionStatus } from '../lib/revenuecat.js';
 
-// Paddle configuration for EduSphere AI (World's Largest Hackathon)
+// Paddle configuration
 const PADDLE_SELLER_ID = 32663;
 const PADDLE_TOKEN = 'test_aee7f4c095b16ab3e6229322121';
 const PADDLE_PRODUCT_ID = 'pro_01jxb5h104j9qfghpvj7dcew81';
 const PADDLE_PRICE_ID = 'pri_01jxb5xwx1k258bgbytqe5r2vz';
 
-// Drag and drop types for coding blocks
+// Drag and drop types
 const ItemTypes = {
   BLOCK: 'block'
 };
 
 /**
- * Draggable coding block component for visual programming
- * Supports premium gating for advanced blocks
+ * Draggable coding block component
  */
 const DragBlock = ({ 
   id, 
@@ -75,7 +74,7 @@ const DragBlock = ({
 };
 
 /**
- * Drop zone for coding blocks - where users build their programs
+ * Drop zone for coding blocks
  */
 const DropZone = ({ onDrop }: { onDrop: (item: any) => void }) => {
   const [{ isOver }, drop] = useDrop(() => ({
@@ -104,7 +103,6 @@ const DropZone = ({ onDrop }: { onDrop: (item: any) => void }) => {
 
 /**
  * Premium subscription modal component
- * Handles upgrade flow with Paddle integration
  */
 const PremiumModal = ({ 
   isOpen, 
@@ -223,7 +221,6 @@ const PremiumModal = ({
 
 /**
  * Premium feature gate component
- * Blurs content and shows upgrade prompt for non-premium users
  */
 const PremiumGate = ({ 
   children, 
@@ -254,8 +251,6 @@ const PremiumGate = ({
 
 /**
  * Main PlayLearnPage component
- * Interactive learning environment for kindergarten students
- * Features drag-and-drop coding, picture slides, and video generation
  */
 const PlayLearnPage: React.FC = () => {
   const navigate = useNavigate();
@@ -268,7 +263,7 @@ const PlayLearnPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [subscriptionStatus, setSubscriptionStatus] = useState<any>(null);
 
-  // Sample content data for educational activities
+  // Sample content data
   const slides = [
     { 
       id: 1, 
@@ -318,53 +313,37 @@ const PlayLearnPage: React.FC = () => {
   ];
 
   /**
-   * Initialize Paddle SDK and check subscription status
-   * Handles both successful initialization and fallback scenarios
+   * Initialize Paddle and check subscription status
    */
   useEffect(() => {
     const initializeServices = async () => {
       try {
         setIsLoading(true);
 
-        // Initialize Paddle with error handling
-        try {
-          const paddleInstance = await Paddle.init({
-            environment: 'sandbox', // Use 'production' for live environment
-            seller: PADDLE_SELLER_ID,
-            token: PADDLE_TOKEN,
-          });
+        // Initialize Paddle
+        const paddleInstance = await Paddle.init({
+          environment: 'sandbox', // Use 'production' for live
+          seller: PADDLE_SELLER_ID,
+          token: PADDLE_TOKEN,
+        });
 
-          if (paddleInstance) {
-            setPaddle(paddleInstance);
-            console.log('Paddle initialized successfully for EduSphere AI');
-          }
-        } catch (paddleError) {
-          console.error('Paddle initialization failed:', paddleError);
-          // Continue without Paddle - graceful degradation
+        if (paddleInstance) {
+          setPaddle(paddleInstance);
+          console.log('Paddle initialized successfully');
         }
 
         // Check subscription status via RevenueCat
-        try {
-          const premiumStatus = await hasPremiumAccess();
-          const status = await getSubscriptionStatus();
-          
-          setIsPremium(premiumStatus);
-          setSubscriptionStatus(status);
-          
-          console.log('Premium status:', premiumStatus);
-          console.log('Subscription status:', status);
-        } catch (subscriptionError) {
-          console.error('Subscription check failed:', subscriptionError);
-          // Default to free tier on error
-          setIsPremium(false);
-          setSubscriptionStatus({ isActive: false, isPremium: false });
-        }
+        const premiumStatus = await hasPremiumAccess();
+        const status = await getSubscriptionStatus();
+        
+        setIsPremium(premiumStatus);
+        setSubscriptionStatus(status);
+        
+        console.log('Premium status:', premiumStatus);
+        console.log('Subscription status:', status);
 
       } catch (error) {
         console.error('Failed to initialize services:', error);
-        // Ensure app continues to work even if services fail
-        setIsPremium(false);
-        setSubscriptionStatus({ isActive: false, isPremium: false });
       } finally {
         setIsLoading(false);
       }
@@ -375,26 +354,22 @@ const PlayLearnPage: React.FC = () => {
 
   /**
    * Handle drop event for coding blocks
-   * Builds the user's program sequence
    */
   const handleDrop = (item: any) => {
     setDroppedItems((prev) => [...prev, item.type]);
   };
 
   /**
-   * Handle premium upgrade via Paddle checkout
-   * Integrates with RevenueCat for subscription management
+   * Handle premium upgrade via Paddle
    */
   const handleUpgrade = async () => {
     if (!paddle) {
-      console.error('Paddle not initialized - showing fallback upgrade flow');
-      // Fallback: redirect to external payment page or show alternative
-      alert('Payment system temporarily unavailable. Please try again later.');
+      console.error('Paddle not initialized');
       return;
     }
 
     try {
-      // Open Paddle checkout with EduSphere AI product configuration
+      // Open Paddle checkout
       await paddle.Checkout.open({
         items: [
           {
@@ -407,8 +382,6 @@ const PlayLearnPage: React.FC = () => {
         },
         customData: {
           userId: 'current_user_id', // This should come from your auth system
-          product: 'edusphere_premium',
-          source: 'play_learn_page'
         },
         settings: {
           displayMode: 'overlay',
@@ -422,25 +395,19 @@ const PlayLearnPage: React.FC = () => {
 
       // Refresh subscription status after successful payment
       setTimeout(async () => {
-        try {
-          const premiumStatus = await hasPremiumAccess();
-          const status = await getSubscriptionStatus();
-          setIsPremium(premiumStatus);
-          setSubscriptionStatus(status);
-        } catch (error) {
-          console.error('Failed to refresh subscription status:', error);
-        }
+        const premiumStatus = await hasPremiumAccess();
+        const status = await getSubscriptionStatus();
+        setIsPremium(premiumStatus);
+        setSubscriptionStatus(status);
       }, 2000);
 
     } catch (error) {
       console.error('Upgrade failed:', error);
-      alert('Payment failed. Please try again or contact support.');
     }
   };
 
   /**
    * Handle ElevenLabs narration (Premium feature)
-   * Provides AI-powered voice narration for educational content
    */
   const handleNarration = async (text: string) => {
     if (!isPremium) {
@@ -449,78 +416,27 @@ const PlayLearnPage: React.FC = () => {
     }
 
     try {
-      console.log('Playing AI narration:', text);
+      // Simulate ElevenLabs API call
+      console.log('Playing narration:', text);
       
-      // Call ElevenLabs API via Netlify function
-      const response = await fetch('/.netlify/functions/textToSpeech', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': 'current_user_id', // Should come from auth
-        },
-        body: JSON.stringify({
-          text: text,
-          voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel voice
-          settings: {
-            stability: 0.7,
-            similarity_boost: 0.8,
-          }
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.audio_data) {
-        // Play the generated audio
-        const audioBlob = new Blob([
-          Uint8Array.from(atob(result.audio_data), c => c.charCodeAt(0))
-        ], { type: 'audio/mpeg' });
-        
-        const audioUrl = URL.createObjectURL(audioBlob);
-        const audio = new Audio(audioUrl);
-        
-        audio.play().catch(error => {
-          console.error('Audio playback failed:', error);
-          // Fallback to browser speech synthesis
-          fallbackNarration(text);
-        });
-        
-        // Clean up URL after playback
-        audio.addEventListener('ended', () => {
-          URL.revokeObjectURL(audioUrl);
-        });
-      } else if (result.fallback) {
-        // Use fallback speech synthesis
-        fallbackNarration(text);
-      } else {
-        throw new Error(result.message || 'Narration failed');
-      }
+      // In a real implementation, you would:
+      // 1. Call ElevenLabs API to generate audio
+      // 2. Play the generated audio
+      // 3. Handle loading states and errors
       
-    } catch (error) {
-      console.error('Narration failed:', error);
-      // Always provide fallback
-      fallbackNarration(text);
-    }
-  };
-
-  /**
-   * Fallback narration using browser's Speech Synthesis API
-   */
-  const fallbackNarration = (text: string) => {
-    try {
+      // For now, use browser's speech synthesis as fallback
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.rate = 0.8;
       utterance.pitch = 1.2;
-      utterance.volume = 0.8;
       window.speechSynthesis.speak(utterance);
+      
     } catch (error) {
-      console.error('Fallback narration failed:', error);
+      console.error('Narration failed:', error);
     }
   };
 
   /**
    * Handle Tavus video generation (Premium feature)
-   * Creates personalized educational videos using AI
    */
   const handleVideoGeneration = async (topic: string) => {
     if (!isPremium) {
@@ -529,49 +445,23 @@ const PlayLearnPage: React.FC = () => {
     }
 
     try {
-      console.log('Generating AI video for topic:', topic);
+      // Simulate Tavus API call
+      console.log('Generating video for topic:', topic);
       
-      // Call Tavus API via Netlify function
-      const response = await fetch('/.netlify/functions/generateVideo', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': 'current_user_id', // Should come from auth
-        },
-        body: JSON.stringify({
-          topic: topic,
-          age_group: 'kindergarten',
-          background: '#f0f8ff',
-          quality: 'high',
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success && result.video_data) {
-        // Handle successful video generation
-        alert(`Video generation started for: ${topic}\nVideo ID: ${result.video_data.video_id || 'Processing...'}`);
-        
-        // In a real implementation, you would:
-        // 1. Show a loading state
-        // 2. Poll for video completion status
-        // 3. Display the video when ready
-        
-      } else if (result.fallback) {
-        // Show fallback content
-        alert(`Showing educational content for: ${topic}\n${result.fallback.video_data.script}`);
-      } else {
-        throw new Error(result.message || 'Video generation failed');
-      }
+      // In a real implementation, you would:
+      // 1. Call Tavus API to generate personalized video
+      // 2. Handle video processing status
+      // 3. Display the generated video when ready
+      
+      alert(`Generating personalized video for: ${topic}\n(This is a demo - real video generation would happen here)`);
       
     } catch (error) {
       console.error('Video generation failed:', error);
-      alert(`Video generation temporarily unavailable for: ${topic}\nPlease try again later.`);
     }
   };
 
   /**
-   * Show loading state while initializing services
+   * Show loading state while initializing
    */
   if (isLoading) {
     return (
@@ -583,7 +473,6 @@ const PlayLearnPage: React.FC = () => {
         >
           <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-600 mx-auto mb-4"></div>
           <p className="text-lg font-semibold text-blue-800">Loading Play & Learn...</p>
-          <p className="text-sm text-blue-600 mt-2">Initializing AI services...</p>
         </motion.div>
       </div>
     );
@@ -741,7 +630,6 @@ const PlayLearnPage: React.FC = () => {
 
 /**
  * Individual slide card component
- * Displays educational content with narration capability
  */
 const SlideCard = ({ 
   slide, 
@@ -770,7 +658,6 @@ const SlideCard = ({
 
 /**
  * Individual video card component
- * Handles AI video generation for educational topics
  */
 const VideoCard = ({ 
   topic, 
