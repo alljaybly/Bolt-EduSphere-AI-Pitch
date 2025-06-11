@@ -16,7 +16,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import Paddle from '@paddle/paddle-js';
+import { Paddle } from '@paddle/paddle-js';
 import { hasPremiumAccess, getSubscriptionStatus } from '../lib/revenuecat.js';
 
 // Paddle configuration
