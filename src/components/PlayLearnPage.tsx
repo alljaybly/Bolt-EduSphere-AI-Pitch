@@ -35,19 +35,19 @@ const LANGUAGES = {
   en: {
     name: 'English',
     flag: '🇺🇸',
-    voiceId: process.env.ELEVENLABS_VOICE_EN || '21m00Tcm4TlvDq8ikWAM', // Rachel
+    voiceId: import.meta.env.VITE_ELEVENLABS_VOICE_EN || '21m00Tcm4TlvDq8ikWAM', // Rachel
     locale: 'en-US'
   },
   es: {
     name: 'Español',
     flag: '🇪🇸',
-    voiceId: process.env.ELEVENLABS_VOICE_ES || 'XB0fDUnXU5powFXDhCwa', // Charlotte (Spanish)
+    voiceId: import.meta.env.VITE_ELEVENLABS_VOICE_ES || 'XB0fDUnXU5powFXDhCwa', // Charlotte (Spanish)
     locale: 'es-ES'
   },
   zh: {
     name: '中文',
     flag: '🇨🇳',
-    voiceId: process.env.ELEVENLABS_VOICE_ZH || 'pNInz6obpgDQGcFmaJgB', // Adam (Mandarin)
+    voiceId: import.meta.env.VITE_ELEVENLABS_VOICE_ZH || 'pNInz6obpgDQGcFmaJgB', // Adam (Mandarin)
     locale: 'zh-CN'
   }
 };
@@ -959,7 +959,7 @@ const PremiumModal = ({
               Maybe later
             </button>
           </div>
-        </motion.div>
+        </div>
       </motion.div>
     </AnimatePresence>
   );
