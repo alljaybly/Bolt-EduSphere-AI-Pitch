@@ -1,16 +1,27 @@
 /**
- * ElevenLabs Text-to-Speech Netlify Function with Multilingual Support and RevenueCat Integration
+ * EduSphere AI Text-to-Speech Netlify Function with Multilingual Support
  * Handles AI-powered narration with premium subscription gating and language-specific voices
- * Stores translations in Neon database for caching and reuse
+ * Stores translations in Supabase for caching and reuse
  * World's Largest Hackathon Project - EduSphere AI
  */
 
 const https = require('https');
 const { URL } = require('url');
-const { neon } = require('@neondatabase/serverless');
+const { createClient } = require('@supabase/supabase-js');
+const * = require('@sentry/node');
 
-// Neon database configuration
-const sql = neon(process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
+// Initialize Sentry for error monitoring
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV || 'development',
+});
+
+// Supabase configuration
+const supabaseUrl = 'https://faphnxotbuwiwfatuok.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhcGhueG90YnV3aXdmYXR1b2siLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNzQ5MjIwMTEzLCJleHAiOjIwNjQ3OTYxMTN9.Ej8nQJhQJGqkKJqKJqKJqKJqKJqKJqKJqKJqKJqKJqK';
+
+// Create Supabase client
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // ElevenLabs API configuration
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
@@ -35,10 +46,22 @@ const LANGUAGE_VOICES = {
     name: 'Adam',
     language: 'Mandarin Chinese',
     model: 'eleven_multilingual_v2'
+  },
+  fr: {
+    voiceId: process.env.ELEVENLABS_VOICE_FR || 'jsCqWAovK2LkecY7zXl4', // Antoine (French)
+    name: 'Antoine',
+    language: 'French',
+    model: 'eleven_multilingual_v2'
+  },
+  de: {
+    voiceId: process.env.ELEVENLABS_VOICE_DE || '5Q0t7uMcjvnagumLfvZi', // Hans (German)
+    name: 'Hans',
+    language: 'German',
+    model: 'eleven_multilingual_v2'
   }
 };
 
-// RevenueCat configuration (matching src/lib/revenuecat.js)
+// RevenueCat configuration for premium access verification
 const REVENUECAT_API_KEY = 'sk_5b90f0883a3b75fcee4c72d14d73a042b325f02f554f0b04';
 const REVENUECAT_BASE_URL = 'https://api.revenuecat.com/v1';
 
@@ -52,16 +75,16 @@ const corsHeaders = {
 };
 
 /**
- * Initialize multilingual content table if it doesn't exist
- * Creates table for storing translations and caching multilingual content
+ * Initialize multilingual content table in Supabase
  */
 async function initializeMultilingualTable() {
   try {
     console.log('Initializing multilingual_content table...');
 
-    // Create multilingual_content table with comprehensive schema
-    await sql`
-      CREATE TABLE IF NOT EXISTS multilingual_content (
+    // Create multilingual_content table
+    const { error: contentError } = await supabase.rpc('create_table_if_not_exists', {
+      table_name: 'multilingual_content',
+      table_definition: `
         id SERIAL PRIMARY KEY,
         original_text TEXT NOT NULL,
         language VARCHAR(10) NOT NULL,
@@ -74,25 +97,17 @@ async function initializeMultilingualTable() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(original_text, language, source_language)
-      )
-    `;
+      `
+    });
 
-    // Create indexes for better performance
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_multilingual_original_language ON multilingual_content(original_text, language)
-    `;
-    
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_multilingual_user_id ON multilingual_content(user_id)
-    `;
-    
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_multilingual_created_at ON multilingual_content(created_at)
-    `;
+    if (contentError) {
+      console.error('Error creating multilingual_content table:', contentError);
+    }
 
-    // Create audio_cache table for storing generated audio metadata
-    await sql`
-      CREATE TABLE IF NOT EXISTS audio_cache (
+    // Create audio_cache table
+    const { error: cacheError } = await supabase.rpc('create_table_if_not_exists', {
+      table_name: 'audio_cache',
+      table_definition: `
         id SERIAL PRIMARY KEY,
         text_hash VARCHAR(64) NOT NULL,
         language VARCHAR(10) NOT NULL,
@@ -102,32 +117,53 @@ async function initializeMultilingualTable() {
         duration_seconds DECIMAL(10,2),
         model_used VARCHAR(50),
         user_id VARCHAR(255),
+        usage_count INTEGER DEFAULT 1,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
         UNIQUE(text_hash, language, voice_id)
-      )
-    `;
+      `
+    });
 
-    await sql`
-      CREATE INDEX IF NOT EXISTS idx_audio_cache_hash_lang ON audio_cache(text_hash, language)
-    `;
+    if (cacheError) {
+      console.error('Error creating audio_cache table:', cacheError);
+    }
+
+    // Create indexes for better performance
+    await supabase.rpc('create_index_if_not_exists', {
+      table_name: 'multilingual_content',
+      index_name: 'idx_multilingual_original_language',
+      index_definition: 'original_text, language'
+    });
+
+    await supabase.rpc('create_index_if_not_exists', {
+      table_name: 'multilingual_content',
+      index_name: 'idx_multilingual_user_id',
+      index_definition: 'user_id'
+    });
+
+    await supabase.rpc('create_index_if_not_exists', {
+      table_name: 'audio_cache',
+      index_name: 'idx_audio_cache_hash_lang',
+      index_definition: 'text_hash, language'
+    });
 
     console.log('Multilingual tables initialized successfully');
     return true;
 
   } catch (error) {
     console.error('Failed to initialize multilingual tables:', error);
-    throw error;
+    Sentry.captureException(error);
+    return false;
   }
 }
 
 /**
  * Make HTTP request using Node.js built-in modules
- * Compatible with Netlify Functions environment
  * @param {string} url - Request URL
  * @param {Object} options - Request options
  * @param {string|Buffer} data - Request body data
- * @returns {Promise<Object>} Response data with status and headers
+ * @returns {Promise<Object>} Response data
  */
 function makeHttpRequest(url, options = {}, data = null) {
   return new Promise((resolve, reject) => {
@@ -185,27 +221,16 @@ function makeHttpRequest(url, options = {}, data = null) {
 }
 
 /**
- * Check user's subscription status via RevenueCat REST API
- * Determines if user has premium access for ElevenLabs features
- * @param {string} userId - User identifier from headers or request
- * @returns {Promise<Object>} Subscription status with premium access info
+ * Check user's premium subscription status via RevenueCat
+ * @param {string} userId - User identifier
+ * @returns {Promise<boolean>} Premium access status
  */
-async function checkSubscriptionStatus(userId) {
+async function checkPremiumAccess(userId) {
   try {
-    console.log('Checking RevenueCat subscription status for user:', userId);
-
-    // Handle missing or invalid user ID
     if (!userId || userId === '[Not provided]' || userId === 'undefined') {
-      console.log('No valid user ID provided, treating as free user');
-      return {
-        isPremium: false,
-        isActive: false,
-        error: 'No valid user ID provided',
-        userId: userId
-      };
+      return false;
     }
 
-    // Make request to RevenueCat API
     const url = `${REVENUECAT_BASE_URL}/subscribers/${encodeURIComponent(userId)}`;
     const options = {
       method: 'GET',
@@ -218,65 +243,33 @@ async function checkSubscriptionStatus(userId) {
 
     const response = await makeHttpRequest(url, options);
 
-    // Handle different response status codes
     if (response.statusCode === 404) {
-      // User not found in RevenueCat - treat as free user
-      console.log('User not found in RevenueCat, treating as free user');
-      return {
-        isPremium: false,
-        isActive: false,
-        isNewUser: true,
-        userId: userId
-      };
+      return false; // User not found - treat as free user
     }
 
     if (response.statusCode === 200 && response.data) {
       const { subscriber } = response.data;
       
-      // Check for premium entitlements
-      if (subscriber && subscriber.entitlements) {
-        const premiumEntitlement = subscriber.entitlements.premium;
+      if (subscriber && subscriber.entitlements && subscriber.entitlements.premium) {
+        const premium = subscriber.entitlements.premium;
         
-        if (premiumEntitlement) {
-          // Check if subscription is active (not expired)
-          const isActive = !premiumEntitlement.expires_date || 
-                          new Date(premiumEntitlement.expires_date) > new Date();
-          
-          console.log('Premium subscription found:', {
-            isActive,
-            expiresAt: premiumEntitlement.expires_date,
-            productId: premiumEntitlement.product_identifier
-          });
-          
-          return {
-            isPremium: true,
-            isActive,
-            expirationDate: premiumEntitlement.expires_date,
-            productId: premiumEntitlement.product_identifier,
-            userId: userId
-          };
+        if (!premium.expires_date) {
+          return true; // No expiration date means active subscription
         }
+        
+        const expirationTime = new Date(premium.expires_date).getTime();
+        const currentTime = new Date().getTime();
+        
+        return expirationTime > currentTime;
       }
     }
 
-    // User exists but no premium subscription
-    console.log('User found but no premium subscription');
-    return {
-      isPremium: false,
-      isActive: false,
-      userId: userId
-    };
+    return false;
 
   } catch (error) {
-    console.error('RevenueCat subscription check failed:', error.message);
-    
-    // On error, default to free tier for security
-    return {
-      isPremium: false,
-      isActive: false,
-      error: error.message,
-      userId: userId
-    };
+    console.error('Premium access check failed:', error.message);
+    Sentry.captureException(error);
+    return false; // Default to no access on error
   }
 }
 
@@ -289,31 +282,40 @@ async function checkSubscriptionStatus(userId) {
  */
 async function getCachedTranslation(originalText, targetLanguage, sourceLanguage = 'en') {
   try {
-    console.log('Checking for cached translation:', { originalText: originalText.substring(0, 50), targetLanguage, sourceLanguage });
+    console.log('Checking for cached translation:', { 
+      originalText: originalText.substring(0, 50) + (originalText.length > 50 ? '...' : ''), 
+      targetLanguage, 
+      sourceLanguage 
+    });
 
-    const result = await sql`
-      SELECT translated_text, quality_score, translation_method, created_at
-      FROM multilingual_content 
-      WHERE original_text = ${originalText} 
-        AND language = ${targetLanguage} 
-        AND source_language = ${sourceLanguage}
-      ORDER BY quality_score DESC, created_at DESC
-      LIMIT 1
-    `;
+    const { data, error } = await supabase
+      .from('multilingual_content')
+      .select('translated_text, quality_score, translation_method, created_at')
+      .eq('original_text', originalText)
+      .eq('language', targetLanguage)
+      .eq('source_language', sourceLanguage)
+      .order('quality_score', { ascending: false })
+      .limit(1);
 
-    if (result.length > 0) {
+    if (error) {
+      console.error('Error fetching cached translation:', error);
+      return null;
+    }
+
+    if (data && data.length > 0) {
       console.log('Found cached translation:', {
-        method: result[0].translation_method,
-        quality: result[0].quality_score,
-        age: new Date() - new Date(result[0].created_at)
+        method: data[0].translation_method,
+        quality: data[0].quality_score,
+        age: new Date() - new Date(data[0].created_at)
       });
-      return result[0].translated_text;
+      return data[0].translated_text;
     }
 
     return null;
 
   } catch (error) {
     console.error('Failed to get cached translation:', error);
+    Sentry.captureException(error);
     return null;
   }
 }
@@ -338,43 +340,34 @@ async function storeTranslation(originalText, targetLanguage, translatedText, so
       quality 
     });
 
-    await sql`
-      INSERT INTO multilingual_content (
-        original_text, 
-        language, 
-        translated_text, 
-        source_language, 
-        translation_method, 
-        quality_score, 
-        user_id, 
-        content_type,
-        created_at,
-        updated_at
-      ) VALUES (
-        ${originalText}, 
-        ${targetLanguage}, 
-        ${translatedText}, 
-        ${sourceLanguage}, 
-        ${method}, 
-        ${quality}, 
-        ${userId}, 
-        'narration',
-        CURRENT_TIMESTAMP,
-        CURRENT_TIMESTAMP
-      )
-      ON CONFLICT (original_text, language, source_language)
-      DO UPDATE SET
-        translated_text = ${translatedText},
-        translation_method = ${method},
-        quality_score = GREATEST(multilingual_content.quality_score, ${quality}),
-        updated_at = CURRENT_TIMESTAMP
-    `;
+    const { error } = await supabase
+      .from('multilingual_content')
+      .upsert({
+        original_text: originalText,
+        language: targetLanguage,
+        translated_text: translatedText,
+        source_language: sourceLanguage,
+        translation_method: method,
+        quality_score: quality,
+        user_id: userId,
+        content_type: 'narration',
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'original_text,language,source_language',
+        ignoreDuplicates: false
+      });
+
+    if (error) {
+      console.error('Error storing translation:', error);
+      return false;
+    }
 
     console.log('Translation stored successfully');
     return true;
 
   } catch (error) {
     console.error('Failed to store translation:', error);
+    Sentry.captureException(error);
     return false;
   }
 }
@@ -389,6 +382,10 @@ async function storeTranslation(originalText, targetLanguage, translatedText, so
  */
 async function translateWithClaude(text, targetLanguage, sourceLanguage = 'en', userId = null) {
   try {
+    if (!ANTHROPIC_API_KEY) {
+      throw new Error('Anthropic API key not configured');
+    }
+
     console.log('Translating with Claude Sonnet 4:', { 
       textLength: text.length, 
       from: sourceLanguage, 
@@ -399,40 +396,74 @@ async function translateWithClaude(text, targetLanguage, sourceLanguage = 'en', 
     const languageNames = {
       en: 'English',
       es: 'Spanish',
-      zh: 'Mandarin Chinese'
+      zh: 'Mandarin Chinese',
+      fr: 'French',
+      de: 'German'
     };
 
     const sourceLangName = languageNames[sourceLanguage] || sourceLanguage;
     const targetLangName = languageNames[targetLanguage] || targetLanguage;
 
-    // Call Claude Sonnet 4 via generateContent function
-    const response = await fetch('/.netlify/functions/generateContent', {
+    // Construct system prompt for translation
+    const systemPrompt = `You are Claude Sonnet 4, an expert translator for EduSphere AI. 
+Your task is to translate text from ${sourceLangName} to ${targetLangName}.
+
+Guidelines:
+1. Provide ONLY the translation, no explanations or additional text
+2. Maintain the original tone and meaning
+3. Preserve formatting, including paragraphs and punctuation
+4. Adapt idioms and cultural references appropriately
+5. Use natural, fluent language appropriate for the target language
+6. Ensure age-appropriate language for educational content
+7. Maintain any technical terminology accurately
+
+Translate the following text from ${sourceLangName} to ${targetLangName}:`;
+
+    // Prepare Claude API request
+    const url = `${ANTHROPIC_BASE_URL}/messages`;
+    const requestData = JSON.stringify({
+      model: 'claude-3-5-sonnet-20241022',
+      max_tokens: 4000,
+      temperature: 0.1, // Lower temperature for more accurate translations
+      system: systemPrompt,
+      messages: [
+        {
+          role: 'user',
+          content: text
+        }
+      ]
+    });
+
+    const options = {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-User-ID': userId || 'system'
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
       },
-      body: JSON.stringify({
-        prompt: `Translate the following text from ${sourceLangName} to ${targetLangName}. Provide only the translation, no explanations or additional text. Maintain the original tone and meaning. Text to translate: "${text}"`,
-        content_type: 'translation',
-        grade: 'general',
-        subject: 'language',
-        user_id: userId || 'system'
-      })
-    });
+    };
 
-    const result = await response.json();
+    // Make request to Claude API
+    const response = await makeHttpRequest(url, options, requestData);
 
-    if (result.success && result.content) {
+    if (response.statusCode === 200 && response.data) {
+      // Extract generated content from Claude's response
+      const content = response.data.content?.[0]?.text;
+      
+      if (!content) {
+        throw new Error('No content generated by Claude');
+      }
+
       // Store the translation for future use
-      await storeTranslation(text, targetLanguage, result.content, sourceLanguage, userId, 'claude_sonnet_4', 9);
-      return result.content.trim();
+      await storeTranslation(text, targetLanguage, content, sourceLanguage, userId, 'claude_sonnet_4', 9);
+      return content.trim();
     }
 
-    throw new Error('Claude translation failed: ' + (result.message || 'Unknown error'));
+    throw new Error(`Claude API error: ${response.statusCode}`);
 
   } catch (error) {
     console.error('Claude translation failed:', error);
+    Sentry.captureException(error);
     throw error;
   }
 }
@@ -466,6 +497,18 @@ function getFallbackTranslation(text, targetLanguage) {
       'Thank you': '谢谢',
       'Good morning': '早上好',
       'Good night': '晚安'
+    },
+    fr: {
+      'Hello': 'Bonjour',
+      'Thank you': 'Merci',
+      'Good morning': 'Bonjour',
+      'Good night': 'Bonne nuit'
+    },
+    de: {
+      'Hello': 'Hallo',
+      'Thank you': 'Danke',
+      'Good morning': 'Guten Morgen',
+      'Good night': 'Gute Nacht'
     }
   };
 
@@ -474,7 +517,6 @@ function getFallbackTranslation(text, targetLanguage) {
 
 /**
  * Generate speech using ElevenLabs API with language-specific voices
- * Converts text to high-quality AI speech with specified voice settings
  * @param {string} text - Text to convert to speech
  * @param {string} language - Language code for voice selection
  * @param {Object} settings - Voice generation settings
@@ -483,7 +525,7 @@ function getFallbackTranslation(text, targetLanguage) {
 async function generateMultilingualSpeech(text, language = 'en', settings = {}) {
   try {
     if (!ELEVENLABS_API_KEY) {
-      throw new Error('ElevenLabs API key not configured in environment variables');
+      throw new Error('ElevenLabs API key not configured');
     }
 
     // Get language-specific voice configuration
@@ -544,18 +586,18 @@ async function generateMultilingualSpeech(text, language = 'en', settings = {}) 
       
       return audioBuffer;
     } else {
-      throw new Error(`ElevenLabs API error: ${response.statusCode} - ${JSON.stringify(response.data)}`);
+      throw new Error(`ElevenLabs API error: ${response.statusCode}`);
     }
 
   } catch (error) {
     console.error('ElevenLabs multilingual speech generation failed:', error.message);
+    Sentry.captureException(error);
     throw error;
   }
 }
 
 /**
  * Generate fallback speech response using browser's Speech Synthesis API
- * Provides instructions for client-side text-to-speech when premium is unavailable
  * @param {string} text - Text to convert to speech
  * @param {string} language - Language code
  * @returns {Object} Fallback response with browser TTS instructions
@@ -567,7 +609,9 @@ function generateFallbackSpeech(text, language = 'en') {
   const localeMapping = {
     en: 'en-US',
     es: 'es-ES',
-    zh: 'zh-CN'
+    zh: 'zh-CN',
+    fr: 'fr-FR',
+    de: 'de-DE'
   };
 
   const locale = localeMapping[language] || 'en-US';
@@ -613,9 +657,8 @@ function generateFallbackSpeech(text, language = 'en') {
 
 /**
  * Validate multilingual text-to-speech request parameters
- * Ensures all required parameters are present and valid
- * @param {Object} body - Request body from client
- * @returns {Object} Validation result with errors if any
+ * @param {Object} body - Request body
+ * @returns {Object} Validation result
  */
 function validateRequest(body) {
   const errors = [];
@@ -630,9 +673,8 @@ function validateRequest(body) {
   }
 
   // Validate language parameter
-  const supportedLanguages = Object.keys(LANGUAGE_VOICES);
-  if (body.language && !supportedLanguages.includes(body.language)) {
-    errors.push(`Language must be one of: ${supportedLanguages.join(', ')}`);
+  if (body.language && !Object.keys(LANGUAGE_VOICES).includes(body.language)) {
+    errors.push(`Language must be one of: ${Object.keys(LANGUAGE_VOICES).join(', ')}`);
   }
 
   // Validate voice ID if provided
@@ -669,29 +711,26 @@ function validateRequest(body) {
 }
 
 /**
- * Extract user ID from various sources in the request
- * Checks headers, query parameters, and request body for user identification
+ * Extract user ID from request
  * @param {Object} event - Netlify event object
- * @param {Object} requestBody - Parsed request body
- * @returns {string|null} User ID or null if not found
+ * @param {Object} requestBody - Request body
+ * @returns {string|null} User ID
  */
 function extractUserId(event, requestBody) {
-  // Try multiple sources for user ID
-  const userId = requestBody.userId || 
-                 event.headers['x-user-id'] || 
-                 event.headers['X-User-ID'] ||
-                 event.queryStringParameters?.user_id ||
-                 event.queryStringParameters?.userId;
-  
-  return userId || null;
+  return requestBody.userId || 
+         requestBody.user_id ||
+         event.headers['x-user-id'] || 
+         event.headers['X-User-ID'] ||
+         event.queryStringParameters?.user_id ||
+         event.queryStringParameters?.userId ||
+         null;
 }
 
 /**
  * Main Netlify function handler
- * Processes multilingual text-to-speech requests with RevenueCat subscription gating
  * @param {Object} event - Netlify event object
  * @param {Object} context - Netlify context object
- * @returns {Object} Response object with audio data or fallback instructions
+ * @returns {Object} Response object
  */
 exports.handler = async (event, context) => {
   console.log('Multilingual Text-to-Speech function invoked:', {
@@ -699,6 +738,12 @@ exports.handler = async (event, context) => {
     path: event.path,
     headers: Object.keys(event.headers),
     hasBody: !!event.body
+  });
+
+  // Add Sentry context
+  Sentry.configureScope(scope => {
+    scope.setTag('function', 'textToSpeech');
+    scope.setTag('method', event.httpMethod);
   });
 
   // Handle CORS preflight requests
@@ -807,8 +852,8 @@ exports.handler = async (event, context) => {
             await storeTranslation(text, language, fallbackTranslation, 'en', userId, 'fallback_dictionary', 6);
           } else {
             // For premium users, try Claude translation
-            const subscriptionStatus = await checkSubscriptionStatus(userId);
-            if (subscriptionStatus.isPremium && subscriptionStatus.isActive) {
+            const isPremium = await checkPremiumAccess(userId);
+            if (isPremium) {
               try {
                 console.log('Attempting Claude translation for premium user');
                 finalText = await translateWithClaude(text, language, 'en', userId);
@@ -824,22 +869,21 @@ exports.handler = async (event, context) => {
         }
       } catch (translationError) {
         console.error('Translation process failed:', translationError);
+        Sentry.captureException(translationError);
         finalText = text; // Fallback to original text
       }
     }
 
-    // Check subscription status via RevenueCat
-    const subscriptionStatus = await checkSubscriptionStatus(userId);
+    // Check premium access for ElevenLabs
+    const isPremium = await checkPremiumAccess(userId);
     
-    console.log('Subscription check result:', {
-      isPremium: subscriptionStatus.isPremium,
-      isActive: subscriptionStatus.isActive,
-      hasError: !!subscriptionStatus.error,
-      userId: subscriptionStatus.userId
+    console.log('Premium access check result:', {
+      isPremium,
+      userId: userId || '[Not provided]'
     });
 
     // Gate premium ElevenLabs features behind subscription
-    if (!subscriptionStatus.isPremium || !subscriptionStatus.isActive) {
+    if (!isPremium) {
       console.log('User does not have premium access, providing fallback TTS');
       
       return {
@@ -852,7 +896,6 @@ exports.handler = async (event, context) => {
           success: false,
           premium_required: true,
           message: `Premium subscription required for AI-powered multilingual narration with ElevenLabs`,
-          subscription_status: subscriptionStatus,
           fallback: generateFallbackSpeech(finalText, language),
           language_info: {
             requested: language,
@@ -913,7 +956,6 @@ exports.handler = async (event, context) => {
             voiceId: voiceId || LANGUAGE_VOICES[language]?.voiceId
           },
           generation_time: new Date().toISOString(),
-          subscription_status: subscriptionStatus,
           translation_info: {
             was_translated: finalText !== text,
             source_language: 'en',
@@ -930,6 +972,7 @@ exports.handler = async (event, context) => {
 
     } catch (elevenlabsError) {
       console.error('ElevenLabs generation failed, providing fallback:', elevenlabsError.message);
+      Sentry.captureException(elevenlabsError);
       
       // Even premium users get fallback if ElevenLabs fails
       return {
@@ -944,7 +987,6 @@ exports.handler = async (event, context) => {
           elevenlabs_error: elevenlabsError.message,
           fallback: generateFallbackSpeech(finalText, language),
           message: 'ElevenLabs temporarily unavailable, using browser fallback',
-          subscription_status: subscriptionStatus,
           language_info: {
             requested: language,
             text_used: finalText,
@@ -960,6 +1002,7 @@ exports.handler = async (event, context) => {
 
   } catch (error) {
     console.error('Function execution error:', error);
+    Sentry.captureException(error);
     
     return {
       statusCode: 500,
