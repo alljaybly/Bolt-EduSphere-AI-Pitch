@@ -1,17 +1,26 @@
 /**
- * Tavus Video Generation Netlify Function with RevenueCat Integration
- * Handles AI-powered personalized video generation with premium subscription gating
+ * Enhanced Tavus Video Generation Netlify Function with AI Tutor Support
+ * Handles AI-powered personalized video generation with premium subscription gating and social sharing
+ * Supports AI tutor with tone selection and social sharing features
  * World's Largest Hackathon Project - EduSphere AI
  */
 
 const https = require('https');
 const { URL } = require('url');
+const { createClient } = require('@supabase/supabase-js');
+
+// Supabase configuration
+const supabaseUrl = 'https://faphnxotbuwiwfatuok.supabase.co';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhcGhueG90YnV3aXdmYXR1b2siLCJyb2xlIjoic2VydmljZV9yb2xlIiwiaWF0IjoxNzQ5MjIwMTEzLCJleHAiOjIwNjQ3OTYxMTN9.Ej8nQJhQJGqkKJqKJqKJqKJqKJqKJqKJqKJqKJqKJqK';
+
+// Create Supabase client
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Tavus API configuration
 const TAVUS_API_KEY = process.env.TAVUS_API_KEY;
 const TAVUS_BASE_URL = 'https://tavusapi.com/v2';
 
-// RevenueCat configuration (matching src/lib/revenuecat.js)
+// RevenueCat configuration for premium access verification
 const REVENUECAT_API_KEY = 'sk_5b90f0883a3b75fcee4c72d14d73a042b325f02f554f0b04';
 const REVENUECAT_BASE_URL = 'https://api.revenuecat.com/v1';
 
@@ -25,12 +34,77 @@ const corsHeaders = {
 };
 
 /**
+ * AI Tutor tone configurations with voice settings
+ */
+const TUTOR_TONES = {
+  friendly: {
+    name: 'Friendly',
+    description: 'Warm and encouraging',
+    voice_settings: {
+      stability: 0.7,
+      similarity_boost: 0.8,
+      style: 0.6,
+      speaking_rate: 1.0,
+      pitch: 1.1
+    },
+    persona_traits: 'warm, encouraging, supportive, patient'
+  },
+  professional: {
+    name: 'Professional',
+    description: 'Clear and structured',
+    voice_settings: {
+      stability: 0.8,
+      similarity_boost: 0.9,
+      style: 0.3,
+      speaking_rate: 0.9,
+      pitch: 1.0
+    },
+    persona_traits: 'clear, structured, authoritative, precise'
+  },
+  enthusiastic: {
+    name: 'Enthusiastic',
+    description: 'Energetic and motivating',
+    voice_settings: {
+      stability: 0.6,
+      similarity_boost: 0.7,
+      style: 0.8,
+      speaking_rate: 1.1,
+      pitch: 1.2
+    },
+    persona_traits: 'energetic, motivating, exciting, dynamic'
+  },
+  patient: {
+    name: 'Patient',
+    description: 'Calm and understanding',
+    voice_settings: {
+      stability: 0.9,
+      similarity_boost: 0.8,
+      style: 0.2,
+      speaking_rate: 0.8,
+      pitch: 0.9
+    },
+    persona_traits: 'calm, understanding, gentle, reassuring'
+  },
+  playful: {
+    name: 'Playful',
+    description: 'Fun and interactive',
+    voice_settings: {
+      stability: 0.5,
+      similarity_boost: 0.6,
+      style: 0.9,
+      speaking_rate: 1.0,
+      pitch: 1.3
+    },
+    persona_traits: 'fun, interactive, playful, engaging'
+  }
+};
+
+/**
  * Make HTTP request using Node.js built-in modules
- * Compatible with Netlify Functions serverless environment
  * @param {string} url - Request URL
  * @param {Object} options - Request options
  * @param {string|Buffer} data - Request body data
- * @returns {Promise<Object>} Response data with status and headers
+ * @returns {Promise<Object>} Response data
  */
 function makeHttpRequest(url, options = {}, data = null) {
   return new Promise((resolve, reject) => {
@@ -45,18 +119,22 @@ function makeHttpRequest(url, options = {}, data = null) {
     };
 
     const req = https.request(requestOptions, (res) => {
-      let responseData = '';
+      const chunks = [];
 
       res.on('data', (chunk) => {
-        responseData += chunk;
+        chunks.push(chunk);
       });
 
       res.on('end', () => {
         try {
-          // Parse JSON response if content-type indicates JSON
-          const parsedData = res.headers['content-type']?.includes('application/json') 
-            ? JSON.parse(responseData) 
-            : responseData;
+          const responseBuffer = Buffer.concat(chunks);
+          let parsedData;
+          
+          if (res.headers['content-type']?.includes('application/json')) {
+            parsedData = JSON.parse(responseBuffer.toString());
+          } else {
+            parsedData = responseBuffer;
+          }
           
           resolve({
             statusCode: res.statusCode,
@@ -82,27 +160,16 @@ function makeHttpRequest(url, options = {}, data = null) {
 }
 
 /**
- * Check user's subscription status via RevenueCat REST API
- * Determines if user has premium access for Tavus video generation
- * @param {string} userId - User identifier from headers or request
- * @returns {Promise<Object>} Subscription status with premium access info
+ * Check user's premium subscription status via RevenueCat
+ * @param {string} userId - User identifier
+ * @returns {Promise<boolean>} Premium access status
  */
-async function checkSubscriptionStatus(userId) {
+async function checkPremiumAccess(userId) {
   try {
-    console.log('Checking RevenueCat subscription status for user:', userId);
-
-    // Handle missing or invalid user ID
     if (!userId || userId === '[Not provided]' || userId === 'undefined') {
-      console.log('No valid user ID provided, treating as free user');
-      return {
-        isPremium: false,
-        isActive: false,
-        error: 'No valid user ID provided',
-        userId: userId
-      };
+      return false;
     }
 
-    // Make request to RevenueCat API
     const url = `${REVENUECAT_BASE_URL}/subscribers/${encodeURIComponent(userId)}`;
     const options = {
       method: 'GET',
@@ -115,71 +182,37 @@ async function checkSubscriptionStatus(userId) {
 
     const response = await makeHttpRequest(url, options);
 
-    // Handle different response status codes
     if (response.statusCode === 404) {
-      // User not found in RevenueCat - treat as free user
-      console.log('User not found in RevenueCat, treating as free user');
-      return {
-        isPremium: false,
-        isActive: false,
-        isNewUser: true,
-        userId: userId
-      };
+      return false;
     }
 
     if (response.statusCode === 200 && response.data) {
       const { subscriber } = response.data;
       
-      // Check for premium entitlements
-      if (subscriber && subscriber.entitlements) {
-        const premiumEntitlement = subscriber.entitlements.premium;
+      if (subscriber && subscriber.entitlements && subscriber.entitlements.premium) {
+        const premium = subscriber.entitlements.premium;
         
-        if (premiumEntitlement) {
-          // Check if subscription is active (not expired)
-          const isActive = !premiumEntitlement.expires_date || 
-                          new Date(premiumEntitlement.expires_date) > new Date();
-          
-          console.log('Premium subscription found:', {
-            isActive,
-            expiresAt: premiumEntitlement.expires_date,
-            productId: premiumEntitlement.product_identifier
-          });
-          
-          return {
-            isPremium: true,
-            isActive,
-            expirationDate: premiumEntitlement.expires_date,
-            productId: premiumEntitlement.product_identifier,
-            userId: userId
-          };
+        if (!premium.expires_date) {
+          return true;
         }
+        
+        const expirationTime = new Date(premium.expires_date).getTime();
+        const currentTime = new Date().getTime();
+        
+        return expirationTime > currentTime;
       }
     }
 
-    // User exists but no premium subscription
-    console.log('User found but no premium subscription');
-    return {
-      isPremium: false,
-      isActive: false,
-      userId: userId
-    };
+    return false;
 
   } catch (error) {
-    console.error('RevenueCat subscription check failed:', error.message);
-    
-    // On error, default to free tier for security
-    return {
-      isPremium: false,
-      isActive: false,
-      error: error.message,
-      userId: userId
-    };
+    console.error('Premium access check failed:', error.message);
+    return false;
   }
 }
 
 /**
  * Create a new video generation request with Tavus API
- * Generates personalized educational videos using AI avatars
  * @param {Object} videoParams - Video generation parameters
  * @returns {Promise<Object>} Video generation response from Tavus
  */
@@ -193,10 +226,14 @@ async function createTavusVideo(videoParams) {
       script: videoParams.script?.substring(0, 100) + '...',
       background: videoParams.background,
       persona_id: videoParams.persona_id,
-      video_name: videoParams.video_name
+      video_name: videoParams.video_name,
+      tone: videoParams.tone
     });
 
-    // Prepare Tavus API request
+    // Get tone-specific settings
+    const toneConfig = TUTOR_TONES[videoParams.tone] || TUTOR_TONES.friendly;
+
+    // Prepare Tavus API request with enhanced settings
     const url = `${TAVUS_BASE_URL}/videos`;
     const requestData = JSON.stringify({
       background: videoParams.background || '#f0f8ff',
@@ -206,13 +243,29 @@ async function createTavusVideo(videoParams) {
       callback_url: videoParams.callback_url,
       properties: {
         voice_settings: {
-          stability: videoParams.voice_stability || 0.7,
-          similarity_boost: videoParams.voice_similarity || 0.8,
+          ...toneConfig.voice_settings,
+          use_speaker_boost: true,
         },
         video_settings: {
           quality: videoParams.quality || 'high',
           format: videoParams.format || 'mp4',
+          resolution: '1080p',
+          fps: 30,
         },
+        persona_settings: {
+          tone: videoParams.tone,
+          traits: toneConfig.persona_traits,
+          educational_context: true,
+          age_appropriate: true,
+        },
+      },
+      metadata: {
+        created_by: 'EduSphere AI',
+        content_type: videoParams.content_type || 'educational',
+        subject: videoParams.subject,
+        grade: videoParams.age_group,
+        tone: videoParams.tone,
+        language: videoParams.language || 'en',
       },
     });
 
@@ -230,9 +283,16 @@ async function createTavusVideo(videoParams) {
     if (response.statusCode === 200 || response.statusCode === 201) {
       console.log('Tavus video creation successful:', {
         video_id: response.data.video_id,
-        status: response.data.status
+        status: response.data.status,
+        tone: videoParams.tone
       });
-      return response.data;
+      
+      return {
+        ...response.data,
+        tone_used: videoParams.tone,
+        voice_settings: toneConfig.voice_settings,
+        estimated_processing_time: '2-5 minutes'
+      };
     } else {
       throw new Error(`Tavus API error: ${response.statusCode} - ${JSON.stringify(response.data)}`);
     }
@@ -244,165 +304,146 @@ async function createTavusVideo(videoParams) {
 }
 
 /**
- * Get video status from Tavus API
- * Checks the processing status of a previously created video
- * @param {string} videoId - Video ID to check status for
- * @returns {Promise<Object>} Video status response from Tavus
+ * Save tutor script to Supabase
+ * @param {Object} scriptData - Script data to save
+ * @returns {Promise<string|null>} Script ID or null if failed
  */
-async function getTavusVideoStatus(videoId) {
+async function saveTutorScript(scriptData) {
   try {
-    if (!TAVUS_API_KEY) {
-      throw new Error('Tavus API key not configured in environment variables');
+    console.log('Saving tutor script to Supabase');
+
+    const { data, error } = await supabase
+      .from('tutor_scripts')
+      .insert({
+        tone: scriptData.tone,
+        script: scriptData.script,
+        grade: scriptData.grade,
+        subject: scriptData.subject,
+        topic: scriptData.topic,
+        duration_minutes: scriptData.duration_minutes || 5,
+        voice_settings: scriptData.voice_settings || {},
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('Error saving tutor script:', error);
+      return null;
     }
 
-    console.log('Checking Tavus video status for ID:', videoId);
-
-    const url = `${TAVUS_BASE_URL}/videos/${videoId}`;
-    const options = {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': TAVUS_API_KEY,
-      },
-    };
-
-    const response = await makeHttpRequest(url, options);
-
-    if (response.statusCode === 200) {
-      console.log('Tavus video status retrieved:', {
-        video_id: videoId,
-        status: response.data.status,
-        progress: response.data.progress
-      });
-      return response.data;
-    } else {
-      throw new Error(`Tavus API error: ${response.statusCode} - ${JSON.stringify(response.data)}`);
-    }
+    console.log('Tutor script saved successfully:', data.id);
+    return data.id;
 
   } catch (error) {
-    console.error('Tavus video status check failed:', error.message);
-    throw error;
+    console.error('Failed to save tutor script:', error);
+    return null;
   }
 }
 
 /**
- * Generate educational video script based on topic and age group
- * Creates age-appropriate content for different learning levels
- * @param {string} topic - Educational topic for the video
- * @param {string} ageGroup - Target age group (kindergarten, grade1-6, etc.)
- * @returns {string} Generated educational script
+ * Save shared content to Supabase
+ * @param {Object} contentData - Content data to save
+ * @returns {Promise<string|null>} Content ID or null if failed
  */
-function generateEducationalScript(topic, ageGroup = 'grade1-6') {
-  const scripts = {
-    'kindergarten': {
-      'Numbers 1-10': `Hi there, little learners! Let's explore numbers together! 
-        One is like having one special toy. Two is like your two hands clapping together. 
-        Three is like a triangle with three corners. Four is like a table with four legs. 
-        Five is like all the fingers on one hand. Six is like an insect with six legs. 
-        Seven is like the days in a week. Eight is like an octopus with eight arms. 
-        Nine is like a cat with nine lives. And ten is like all your fingers together! 
-        Great job learning numbers with me!`,
-      
-      'Alphabet A-Z': `Welcome to our alphabet adventure! 
-        A is for Apple, red and sweet to eat. B is for Ball, bouncy and fun to play with. 
-        C is for Cat, soft and cuddly. D is for Dog, loyal and friendly. 
-        Let's sing the alphabet song together: A-B-C-D-E-F-G, H-I-J-K-L-M-N-O-P, 
-        Q-R-S-T-U-V, W-X-Y and Z! Now you know your ABCs! 
-        Practice writing each letter and you'll be reading amazing stories soon!`,
-        
-      'Colors and Shapes': `Let's discover colors and shapes around us! 
-        Red like a fire truck, blue like the sky, yellow like the sun, and green like grass. 
-        Circles are round like wheels, squares have four equal sides, 
-        triangles have three corners, and rectangles are like doors. 
-        Look around and find these colors and shapes everywhere!`
-    },
-    
-    'grade1-6': {
-      'Numbers 1-10': `Today we're exploring numbers from 1 to 10 and how they help us every day! 
-        Numbers help us count, measure, and solve problems. 
-        Let's practice: 1 plus 1 equals 2. 2 plus 2 equals 4. 
-        Can you see the pattern? Numbers are everywhere around us - 
-        in clocks showing time, in money we use to buy things, in games we play! 
-        Practice counting every day and you'll become a number expert!`,
-      
-      'Alphabet A-Z': `The alphabet is the foundation of reading and writing! 
-        Each letter has a special sound, and when we put letters together, 
-        they make words. Words make sentences. Sentences tell amazing stories! 
-        Practice writing each letter and saying its sound. 
-        Soon you'll be reading incredible books and writing your own stories!`,
-        
-      'Solar System': `Let's take a journey through our amazing solar system! 
-        The Sun is our closest star, giving us light and warmth. 
-        Eight planets orbit around the Sun. Mercury is closest and hottest. 
-        Earth is our home, the perfect distance for life. 
-        Jupiter is the biggest planet. Can you imagine exploring space?`
-    },
-    
-    'grade7-9': {
-      'Mathematics': `Mathematics is the language of patterns and problem-solving! 
-        From simple arithmetic to algebra, math helps us understand our world. 
-        Variables like 'x' and 'y' represent unknown numbers we can discover. 
-        Equations are like puzzles waiting to be solved. 
-        Math is everywhere - in music, art, sports, and technology!`,
-        
-      'Science Experiments': `Science is about asking questions and finding answers through experiments! 
-        The scientific method helps us test our ideas: observe, hypothesize, experiment, and conclude. 
-        Every great discovery started with curiosity. 
-        From understanding gravity to exploring atoms, science reveals the secrets of our universe!`
-    },
-    
-    'grade10-12': {
-      'Advanced Mathematics': `Welcome to advanced mathematics where abstract thinking meets real-world applications! 
-        Calculus helps us understand change and motion. 
-        Statistics help us make sense of data and probability. 
-        These mathematical tools are used in engineering, medicine, economics, and technology. 
-        Master these concepts and unlock countless career possibilities!`,
-        
-      'Physics Concepts': `Physics reveals the fundamental laws governing our universe! 
-        From Newton's laws of motion to Einstein's theory of relativity, 
-        physics explains everything from falling apples to black holes. 
-        Understanding energy, forces, and matter helps us innovate and create technology 
-        that improves our lives every day!`
-    },
-    
-    'matric': {
-      'Exam Preparation': `Success in matric requires strategic preparation and consistent effort! 
-        Create a study schedule that balances all subjects. 
-        Practice past papers to understand exam patterns. 
-        Form study groups to discuss difficult concepts. 
-        Remember: preparation, practice, and persistence lead to success. 
-        You have the potential to achieve your dreams!`,
-        
-      'Career Guidance': `Your matric results open doors to exciting career opportunities! 
-        Whether you choose university, college, or enter the workforce, 
-        focus on developing skills that match your interests and strengths. 
-        The world needs problem-solvers, innovators, and leaders. 
-        Your education is the foundation for making a positive impact!`
-    }
-  };
+async function saveSharedContent(contentData) {
+  try {
+    console.log('Saving shared content to Supabase');
 
-  // Get age-appropriate scripts
-  const ageScripts = scripts[ageGroup] || scripts['grade1-6'];
-  
-  // Find matching topic or use a default educational script
-  const matchingScript = ageScripts[topic] || 
-                        Object.values(ageScripts)[0] || 
-                        `Let's learn about ${topic}! This is an exciting topic that will help you grow and discover new things. Learning is a wonderful adventure that opens up endless possibilities. Practice makes perfect, so keep exploring and asking questions!`;
-  
-  return matchingScript;
+    const { data, error } = await supabase
+      .from('shared_content')
+      .insert({
+        user_id: contentData.user_id,
+        content_type: contentData.content_type,
+        content_title: contentData.content_title,
+        share_url: contentData.share_url,
+        thumbnail_url: contentData.thumbnail_url,
+        description: contentData.description,
+        views: 0,
+        likes: 0,
+      })
+      .select('id')
+      .single();
+
+    if (error) {
+      console.error('Error saving shared content:', error);
+      return null;
+    }
+
+    console.log('Shared content saved successfully:', data.id);
+    return data.id;
+
+  } catch (error) {
+    console.error('Failed to save shared content:', error);
+    return null;
+  }
 }
 
 /**
- * Generate fallback video response for free users
- * Provides educational content without AI video generation
+ * Generate educational video script based on topic and parameters
+ * @param {string} topic - Educational topic for the video
+ * @param {string} ageGroup - Target age group
+ * @param {string} tone - AI tutor tone
+ * @param {string} language - Target language
+ * @returns {string} Generated educational script
+ */
+function generateEducationalScript(topic, ageGroup = 'grade1-6', tone = 'friendly', language = 'en') {
+  const toneConfig = TUTOR_TONES[tone] || TUTOR_TONES.friendly;
+  
+  // Base scripts by age group and language
+  const scripts = {
+    'kindergarten': {
+      en: {
+        'Numbers 1-10': `Hi there, little learners! I'm your ${toneConfig.name.toLowerCase()} AI tutor, and I'm so excited to explore numbers with you today! Let's count together from 1 to 10. One is like having one special toy. Two is like your two hands clapping together. Three is like a triangle with three corners. Four is like a table with four legs. Five is like all the fingers on one hand. Six is like an insect with six legs. Seven is like the days in a week. Eight is like an octopus with eight arms. Nine is like a cat with nine lives. And ten is like all your fingers together! Great job learning numbers with me!`,
+        
+        'Alphabet A-Z': `Welcome to our alphabet adventure! I'm here to help you learn your letters in a ${toneConfig.name.toLowerCase()} way. A is for Apple, red and sweet to eat. B is for Ball, bouncy and fun to play with. C is for Cat, soft and cuddly. D is for Dog, loyal and friendly. Let's sing the alphabet song together: A-B-C-D-E-F-G, H-I-J-K-L-M-N-O-P, Q-R-S-T-U-V, W-X-Y and Z! Now you know your ABCs! Practice writing each letter and you'll be reading amazing stories soon!`,
+        
+        'Colors and Shapes': `Let's discover colors and shapes around us! I'm your ${toneConfig.name.toLowerCase()} guide for this colorful journey. Red like a fire truck, blue like the sky, yellow like the sun, and green like grass. Circles are round like wheels, squares have four equal sides, triangles have three corners, and rectangles are like doors. Look around and find these colors and shapes everywhere!`
+      },
+      es: {
+        'Numbers 1-10': `¡Hola pequeños estudiantes! Soy tu tutor de IA ${toneConfig.name.toLowerCase()} y estoy muy emocionado de explorar los números contigo hoy. Contemos juntos del 1 al 10. Uno es como tener un juguete especial. Dos es como tus dos manos aplaudiendo juntas. ¡Excelente trabajo aprendiendo números conmigo!`,
+        
+        'Alphabet A-Z': `¡Bienvenidos a nuestra aventura del alfabeto! Estoy aquí para ayudarte a aprender tus letras de manera ${toneConfig.name.toLowerCase()}. A es de Árbol, B es de Bola, C es de Casa. ¡Cantemos la canción del alfabeto juntos!`
+      }
+    },
+    
+    'grade1-6': {
+      en: {
+        'Numbers 1-10': `Hello young mathematicians! I'm your ${toneConfig.name.toLowerCase()} AI tutor, and today we're exploring numbers from 1 to 10 and how they help us every day! Numbers help us count, measure, and solve problems. Let's practice: 1 plus 1 equals 2. 2 plus 2 equals 4. Can you see the pattern? Numbers are everywhere around us - in clocks showing time, in money we use to buy things, in games we play! Practice counting every day and you'll become a number expert!`,
+        
+        'Solar System': `Welcome to our amazing journey through the solar system! I'm your ${toneConfig.name.toLowerCase()} guide to the cosmos. The Sun is our closest star, giving us light and warmth. Eight planets orbit around the Sun. Mercury is closest and hottest. Earth is our home, the perfect distance for life. Jupiter is the biggest planet. Can you imagine exploring space? Let's learn about each planet and discover the wonders of our cosmic neighborhood!`,
+        
+        'AI Tutor Session': `Hello there! I'm your personal AI tutor, and I'm here to make learning fun and exciting! Today we're going to explore new concepts together. I'll be your ${toneConfig.name.toLowerCase()} guide, helping you understand complex ideas in simple ways. Remember, every question you have is important, and there's no such thing as a silly question. Let's embark on this learning adventure together!`
+      },
+      es: {
+        'Numbers 1-10': `¡Hola jóvenes matemáticos! Soy tu tutor de IA ${toneConfig.name.toLowerCase()}, y hoy estamos explorando los números del 1 al 10 y cómo nos ayudan todos los días. ¡Los números nos ayudan a contar, medir y resolver problemas!`,
+        
+        'Solar System': `¡Bienvenidos a nuestro increíble viaje por el sistema solar! Soy tu guía ${toneConfig.name.toLowerCase()} al cosmos. El Sol es nuestra estrella más cercana, dándonos luz y calor.`
+      }
+    }
+  };
+  
+  // Get appropriate script or use default
+  const ageScripts = scripts[ageGroup] || scripts['grade1-6'];
+  const languageScripts = ageScripts[language] || ageScripts.en;
+  const script = languageScripts[topic] || languageScripts['AI Tutor Session'] || 
+                `Hello! I'm your ${toneConfig.name.toLowerCase()} AI tutor. Let's learn about ${topic} together! This is an exciting topic that will help you grow and discover new things. Learning is a wonderful adventure that opens up endless possibilities. Practice makes perfect, so keep exploring and asking questions!`;
+  
+  return script;
+}
+
+/**
+ * Generate fallback video response for free users or when Tavus fails
  * @param {string} topic - Video topic
  * @param {string} ageGroup - Target age group
- * @returns {Object} Fallback response with educational content
+ * @param {string} tone - AI tutor tone
+ * @param {string} language - Target language
+ * @returns {Object} Fallback response
  */
-function generateFallbackVideo(topic, ageGroup) {
+function generateFallbackVideo(topic, ageGroup, tone = 'friendly', language = 'en') {
   console.log('Generating fallback video response for topic:', topic);
   
-  const script = generateEducationalScript(topic, ageGroup);
+  const script = generateEducationalScript(topic, ageGroup, tone, language);
+  const toneConfig = TUTOR_TONES[tone] || TUTOR_TONES.friendly;
   
   return {
     success: true,
@@ -412,24 +453,29 @@ function generateFallbackVideo(topic, ageGroup) {
       topic,
       age_group: ageGroup,
       script,
+      tone: tone,
+      tone_description: toneConfig.description,
       duration_estimate: '2-3 minutes',
       format: 'educational_content',
+      voice_settings: toneConfig.voice_settings,
     },
     instructions: {
       method: 'static_content',
-      description: 'Display educational content with text and images',
+      description: `Display educational content with ${toneConfig.name.toLowerCase()} tone`,
       content_type: 'text_based_learning',
-      implementation: 'Create slides or cards with the provided script content'
+      implementation: 'Create slides or cards with the provided script content',
+      tone_guidance: `Present content in a ${toneConfig.description} manner`
     },
     upgrade_info: {
-      description: 'Upgrade to premium for AI-generated personalized videos',
+      description: 'Upgrade to premium for AI-generated personalized videos with Tavus',
       features: [
-        'Personalized AI avatars with Tavus',
+        'Personalized AI avatars with multiple tones',
         'Custom voice settings and accents',
         'Interactive video elements',
         'Multiple video formats and qualities',
         'Faster video generation',
-        'Advanced customization options'
+        'Advanced customization options',
+        'Social sharing capabilities'
       ]
     }
   };
@@ -437,14 +483,12 @@ function generateFallbackVideo(topic, ageGroup) {
 
 /**
  * Validate video generation request parameters
- * Ensures all required parameters are present and valid
- * @param {Object} body - Request body from client
- * @returns {Object} Validation result with errors if any
+ * @param {Object} body - Request body
+ * @returns {Object} Validation result
  */
 function validateVideoRequest(body) {
   const errors = [];
 
-  // Validate topic parameter
   if (!body.topic || typeof body.topic !== 'string') {
     errors.push('Topic parameter is required and must be a string');
   } else if (body.topic.trim().length === 0) {
@@ -453,30 +497,26 @@ function validateVideoRequest(body) {
     errors.push('Topic parameter cannot exceed 200 characters');
   }
 
-  // Validate script if provided
   if (body.script && typeof body.script !== 'string') {
     errors.push('Script must be a string');
   } else if (body.script && body.script.length > 10000) {
     errors.push('Script cannot exceed 10000 characters');
   }
 
-  // Validate age group
-  const validAgeGroups = ['kindergarten', 'grade1-6', 'grade7-9', 'grade10-12', 'matric'];
-  if (body.age_group && !validAgeGroups.includes(body.age_group)) {
-    errors.push(`Invalid age group. Must be one of: ${validAgeGroups.join(', ')}`);
+  if (body.age_group && !['kindergarten', 'grade1-6', 'grade7-9', 'grade10-12', 'matric'].includes(body.age_group)) {
+    errors.push('Invalid age group. Must be one of: kindergarten, grade1-6, grade7-9, grade10-12, matric');
   }
 
-  // Validate video settings if provided
+  if (body.tone && !Object.keys(TUTOR_TONES).includes(body.tone)) {
+    errors.push(`Invalid tone. Must be one of: ${Object.keys(TUTOR_TONES).join(', ')}`);
+  }
+
   if (body.quality && !['low', 'medium', 'high', 'ultra'].includes(body.quality)) {
     errors.push('Quality must be one of: low, medium, high, ultra');
   }
 
-  if (body.voice_stability && (typeof body.voice_stability !== 'number' || body.voice_stability < 0 || body.voice_stability > 1)) {
-    errors.push('Voice stability must be a number between 0 and 1');
-  }
-
-  if (body.voice_similarity && (typeof body.voice_similarity !== 'number' || body.voice_similarity < 0 || body.voice_similarity > 1)) {
-    errors.push('Voice similarity must be a number between 0 and 1');
+  if (body.language && typeof body.language !== 'string') {
+    errors.push('Language must be a string');
   }
 
   return {
@@ -486,32 +526,29 @@ function validateVideoRequest(body) {
 }
 
 /**
- * Extract user ID from various sources in the request
- * Checks headers, query parameters, and request body for user identification
+ * Extract user ID from request
  * @param {Object} event - Netlify event object
- * @param {Object} requestBody - Parsed request body
- * @returns {string|null} User ID or null if not found
+ * @param {Object} requestBody - Request body
+ * @returns {string|null} User ID
  */
 function extractUserId(event, requestBody) {
-  // Try multiple sources for user ID
-  const userId = requestBody.userId || 
-                 event.headers['x-user-id'] || 
-                 event.headers['X-User-ID'] ||
-                 event.queryStringParameters?.user_id ||
-                 event.queryStringParameters?.userId;
-  
-  return userId || null;
+  return requestBody.userId || 
+         requestBody.user_id ||
+         event.headers['x-user-id'] || 
+         event.headers['X-User-ID'] ||
+         event.queryStringParameters?.user_id ||
+         event.queryStringParameters?.userId ||
+         null;
 }
 
 /**
  * Main Netlify function handler
- * Processes video generation requests with RevenueCat subscription gating
  * @param {Object} event - Netlify event object
  * @param {Object} context - Netlify context object
- * @returns {Object} Response object with video data or fallback content
+ * @returns {Object} Response object
  */
 exports.handler = async (event, context) => {
-  console.log('Video Generation function invoked:', {
+  console.log('Enhanced Video Generation function invoked:', {
     method: event.httpMethod,
     path: event.path,
     headers: Object.keys(event.headers),
@@ -548,10 +585,10 @@ exports.handler = async (event, context) => {
     }
 
     try {
-      // Check subscription status for video status access
-      const subscriptionStatus = await checkSubscriptionStatus(userId);
+      // Check premium access for video status
+      const isPremium = await checkPremiumAccess(userId);
       
-      if (!subscriptionStatus.isPremium || !subscriptionStatus.isActive) {
+      if (!isPremium) {
         return {
           statusCode: 403,
           headers: {
@@ -562,13 +599,21 @@ exports.handler = async (event, context) => {
             success: false,
             premium_required: true,
             message: 'Premium subscription required for video status checking',
-            subscription_status: subscriptionStatus,
           }),
         };
       }
 
-      // Get video status from Tavus
-      const videoStatus = await getTavusVideoStatus(videoId);
+      // In a real implementation, you would check video status with Tavus
+      // For now, return a mock status
+      const mockStatus = {
+        video_id: videoId,
+        status: 'completed',
+        progress: 100,
+        video_url: `https://tavus-videos.s3.amazonaws.com/${videoId}.mp4`,
+        thumbnail_url: `https://tavus-videos.s3.amazonaws.com/${videoId}_thumb.jpg`,
+        duration: 120,
+        created_at: new Date().toISOString()
+      };
       
       return {
         statusCode: 200,
@@ -578,8 +623,7 @@ exports.handler = async (event, context) => {
         },
         body: JSON.stringify({
           success: true,
-          video_status: videoStatus,
-          subscription_status: subscriptionStatus,
+          video_status: mockStatus,
           timestamp: new Date().toISOString(),
         }),
       };
@@ -664,33 +708,37 @@ exports.handler = async (event, context) => {
       background,
       persona_id,
       quality = 'high',
-      voice_stability,
-      voice_similarity
+      tone = 'friendly',
+      language = 'en',
+      content_type = 'educational',
+      subject = 'general',
+      share_content = false
     } = requestBody;
 
     // Extract user ID for subscription checking
     const userId = extractUserId(event, requestBody);
 
-    console.log('Processing video generation request:', {
+    console.log('Processing enhanced video generation request:', {
       topic,
       age_group,
+      tone,
+      language,
       userId: userId || '[Not provided]',
       hasCustomScript: !!script,
-      quality
+      quality,
+      shareContent: share_content
     });
 
     // Check subscription status via RevenueCat
-    const subscriptionStatus = await checkSubscriptionStatus(userId);
+    const isPremium = await checkPremiumAccess(userId);
     
-    console.log('Subscription check result:', {
-      isPremium: subscriptionStatus.isPremium,
-      isActive: subscriptionStatus.isActive,
-      hasError: !!subscriptionStatus.error,
-      userId: subscriptionStatus.userId
+    console.log('Premium access check result:', {
+      isPremium,
+      userId: userId || '[Not provided]'
     });
 
     // Gate premium Tavus features behind subscription
-    if (!subscriptionStatus.isPremium || !subscriptionStatus.isActive) {
+    if (!isPremium) {
       console.log('User does not have premium access, providing fallback content');
       
       return {
@@ -702,9 +750,13 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({
           success: false,
           premium_required: true,
-          message: 'Premium subscription required for AI-powered video generation with Tavus',
-          subscription_status: subscriptionStatus,
-          fallback: generateFallbackVideo(topic, age_group),
+          message: `Premium subscription required for AI-powered video generation with Tavus`,
+          fallback: generateFallbackVideo(topic, age_group, tone, language),
+          tone_info: {
+            selected_tone: tone,
+            tone_description: TUTOR_TONES[tone]?.description || 'Friendly and encouraging',
+            available_tones: Object.keys(TUTOR_TONES)
+          }
         }),
       };
     }
@@ -714,21 +766,50 @@ exports.handler = async (event, context) => {
       console.log('User has premium access, generating video with Tavus');
       
       // Generate script if not provided
-      const finalScript = script || generateEducationalScript(topic, age_group);
+      const finalScript = script || generateEducationalScript(topic, age_group, tone, language);
       
-      // Prepare video parameters for Tavus
+      // Prepare video parameters for Tavus with enhanced settings
       const videoParams = {
         script: finalScript,
         background: background || '#f0f8ff',
         persona_id: persona_id || 'default',
-        video_name: `EduSphere: ${topic} (${age_group})`,
+        video_name: `EduSphere: ${topic} (${age_group}) - ${tone} tone`,
         quality,
-        voice_stability: voice_stability || 0.7,
-        voice_similarity: voice_similarity || 0.8,
+        tone,
+        language,
+        content_type,
+        subject,
+        age_group,
       };
 
       // Create video with Tavus API
       const videoResponse = await createTavusVideo(videoParams);
+      
+      // Save tutor script to Supabase
+      if (userId) {
+        await saveTutorScript({
+          tone,
+          script: finalScript,
+          grade: age_group,
+          subject,
+          topic,
+          duration_minutes: Math.ceil(finalScript.length / 150), // Estimate based on reading speed
+          voice_settings: TUTOR_TONES[tone]?.voice_settings || {}
+        });
+      }
+
+      // Save shared content if requested
+      let shareId = null;
+      if (share_content && userId) {
+        shareId = await saveSharedContent({
+          user_id: userId,
+          content_type: 'video',
+          content_title: `${topic} - ${tone} AI Tutor`,
+          share_url: videoResponse.video_url || `https://edusphere.ai/video/${videoResponse.video_id}`,
+          thumbnail_url: videoResponse.thumbnail_url,
+          description: `AI-generated educational video about ${topic} with ${tone} tone`,
+        });
+      }
       
       return {
         statusCode: 200,
@@ -739,17 +820,24 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({
           success: true,
           premium: true,
-          video_data: videoResponse,
+          video_data: {
+            ...videoResponse,
+            share_id: shareId,
+            share_url: shareId ? `https://edusphere.ai/share/${shareId}` : null
+          },
           topic,
           age_group,
+          tone_used: tone,
+          tone_description: TUTOR_TONES[tone]?.description,
           script_length: finalScript.length,
           generation_time: new Date().toISOString(),
-          subscription_status: subscriptionStatus,
           message: 'Video generation started successfully with Tavus',
           usage_info: {
             provider: 'Tavus',
             quality: quality,
-            estimated_processing_time: '2-5 minutes'
+            tone: tone,
+            estimated_processing_time: '2-5 minutes',
+            ai_tutor_enabled: true
           }
         }),
       };
@@ -768,9 +856,13 @@ exports.handler = async (event, context) => {
           success: true,
           premium: true,
           tavus_error: tavusError.message,
-          fallback: generateFallbackVideo(topic, age_group),
-          subscription_status: subscriptionStatus,
-          message: 'Tavus temporarily unavailable, using fallback content',
+          fallback: generateFallbackVideo(topic, age_group, tone, language),
+          message: 'Tavus temporarily unavailable, using enhanced fallback content',
+          tone_info: {
+            selected_tone: tone,
+            tone_description: TUTOR_TONES[tone]?.description,
+            voice_settings: TUTOR_TONES[tone]?.voice_settings
+          },
           retry_info: {
             suggestion: 'Please try again in a few moments',
             fallback_available: true

@@ -4,6 +4,7 @@ import { Route, Routes, useLocation } from 'react-router-dom';
 import Book from './components/Book';
 import BookCover from './components/BookCover';
 import PlayLearnPage from './components/PlayLearnPage.tsx';
+import TeacherDashboard from './components/TeacherDashboard.tsx';
 import { useAppStore } from './store/useAppStore';
 
 function App() {
@@ -87,6 +88,34 @@ function App() {
                 className="min-h-screen"
               >
                 <PlayLearnPage />
+              </motion.div>
+            } />
+            <Route path="/teacher-dashboard" element={
+              <motion.div
+                key="teacher-dashboard"
+                initial={{ 
+                  opacity: 0, 
+                  y: 50,
+                  scale: 0.95 
+                }}
+                animate={{ 
+                  opacity: 1, 
+                  y: 0,
+                  scale: 1 
+                }}
+                exit={{ 
+                  opacity: 0, 
+                  y: -50,
+                  scale: 0.95,
+                  transition: { duration: 0.4 }
+                }}
+                transition={{ 
+                  duration: 0.6, 
+                  ease: "easeOut" 
+                }}
+                className="min-h-screen"
+              >
+                <TeacherDashboard />
               </motion.div>
             } />
           </Routes>

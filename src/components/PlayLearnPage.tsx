@@ -20,10 +20,31 @@ import {
   Crown,
   Lock,
   Globe,
-  Languages
+  Languages,
+  Trophy,
+  Star,
+  Share2,
+  Target,
+  Zap,
+  Award,
+  TrendingUp,
+  Users,
+  Heart,
+  Eye,
+  Settings,
+  Mic,
+  Bot,
+  Lightbulb,
+  ArrowRight,
+  Gift,
+  Calendar,
+  Clock,
+  Brain,
+  Gamepad2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { hasPremiumAccess, getCurrentUserId } from '../lib/revenuecat.js';
+import { supabase, supabaseHelpers, UserPreferences, UserAchievements, SharedContent } from '../lib/supabase';
 
 // Drag and drop types
 const ItemTypes = {
@@ -35,20 +56,100 @@ const LANGUAGES = {
   en: {
     name: 'English',
     flag: '🇺🇸',
-    voiceId: 'VITE_ELEVENLABS_VOICE_EN' || '21m00Tcm4TlvDq8ikWAM', // Rachel
+    voiceId: '21m00Tcm4TlvDq8ikWAM', // Rachel
     locale: 'en-US'
   },
   es: {
     name: 'Español',
     flag: '🇪🇸',
-    voiceId: 'VITE_ELEVENLABS_VOICE_ES' || 'XB0fDUnXU5powFXDhCwa', // Charlotte (Spanish)
+    voiceId: 'XB0fDUnXU5powFXDhCwa', // Charlotte (Spanish)
     locale: 'es-ES'
   },
   zh: {
     name: '中文',
     flag: '🇨🇳',
-    voiceId: 'VITE_ELEVENLABS_VOICE_ZH' || 'pNInz6obpgDQGcFmaJgB', // Adam (Mandarin)
+    voiceId: 'pNInz6obpgDQGcFmaJgB', // Adam (Mandarin)
     locale: 'zh-CN'
+  }
+};
+
+// AI Tutor tone options
+const TUTOR_TONES = {
+  friendly: {
+    name: 'Friendly',
+    icon: '😊',
+    description: 'Warm and encouraging',
+    color: 'bg-green-100 text-green-800'
+  },
+  professional: {
+    name: 'Professional',
+    icon: '👔',
+    description: 'Clear and structured',
+    color: 'bg-blue-100 text-blue-800'
+  },
+  enthusiastic: {
+    name: 'Enthusiastic',
+    icon: '🎉',
+    description: 'Energetic and motivating',
+    color: 'bg-orange-100 text-orange-800'
+  },
+  patient: {
+    name: 'Patient',
+    icon: '🧘',
+    description: 'Calm and understanding',
+    color: 'bg-purple-100 text-purple-800'
+  },
+  playful: {
+    name: 'Playful',
+    icon: '🎮',
+    description: 'Fun and interactive',
+    color: 'bg-pink-100 text-pink-800'
+  }
+};
+
+// Achievement badges configuration
+const ACHIEVEMENT_BADGES = {
+  first_lesson: {
+    name: 'First Steps',
+    description: 'Completed your first lesson',
+    icon: '🎯',
+    points: 10,
+    color: 'bg-blue-500'
+  },
+  streak_3: {
+    name: '3-Day Streak',
+    description: 'Learned for 3 days in a row',
+    icon: '🔥',
+    points: 25,
+    color: 'bg-orange-500'
+  },
+  streak_7: {
+    name: 'Week Warrior',
+    description: 'Learned for 7 days in a row',
+    icon: '⚡',
+    points: 50,
+    color: 'bg-yellow-500'
+  },
+  perfect_score: {
+    name: 'Perfect Score',
+    description: 'Got 100% on a lesson',
+    icon: '⭐',
+    points: 30,
+    color: 'bg-green-500'
+  },
+  social_sharer: {
+    name: 'Social Butterfly',
+    description: 'Shared your first creation',
+    icon: '🦋',
+    points: 20,
+    color: 'bg-purple-500'
+  },
+  ai_tutor_fan: {
+    name: 'AI Tutor Fan',
+    description: 'Used AI tutor 5 times',
+    icon: '🤖',
+    points: 40,
+    color: 'bg-indigo-500'
   }
 };
 
@@ -81,7 +182,15 @@ const TRANSLATIONS = {
     turnRight: 'Turn Right',
     resetRobot: 'Reset Robot',
     language: 'Language',
-    selectLanguage: 'Select Language'
+    selectLanguage: 'Select Language',
+    nextLesson: 'Next Lesson',
+    achievements: 'Achievements',
+    leaderboard: 'Leaderboard',
+    shareCreation: 'Share Creation',
+    aiTutor: 'AI Tutor',
+    personalizedLearning: 'Personalized Learning',
+    gamification: 'Gamification',
+    socialSharing: 'Social Sharing'
   },
   es: {
     playAndLearn: 'Jugar y Aprender',
@@ -110,7 +219,15 @@ const TRANSLATIONS = {
     turnRight: 'Girar Derecha',
     resetRobot: 'Reiniciar Robot',
     language: 'Idioma',
-    selectLanguage: 'Seleccionar Idioma'
+    selectLanguage: 'Seleccionar Idioma',
+    nextLesson: 'Próxima Lección',
+    achievements: 'Logros',
+    leaderboard: 'Tabla de Clasificación',
+    shareCreation: 'Compartir Creación',
+    aiTutor: 'Tutor IA',
+    personalizedLearning: 'Aprendizaje Personalizado',
+    gamification: 'Gamificación',
+    socialSharing: 'Compartir Social'
   },
   zh: {
     playAndLearn: '游戏学习',
@@ -139,7 +256,15 @@ const TRANSLATIONS = {
     turnRight: '右转',
     resetRobot: '重置机器人',
     language: '语言',
-    selectLanguage: '选择语言'
+    selectLanguage: '选择语言',
+    nextLesson: '下一课',
+    achievements: '成就',
+    leaderboard: '排行榜',
+    shareCreation: '分享创作',
+    aiTutor: 'AI导师',
+    personalizedLearning: '个性化学习',
+    gamification: '游戏化',
+    socialSharing: '社交分享'
   }
 };
 
@@ -206,6 +331,761 @@ const LanguageSelector = ({
         )}
       </AnimatePresence>
     </div>
+  );
+};
+
+/**
+ * Personalized Learning Component
+ */
+const PersonalizedLearning = ({ 
+  userId, 
+  language, 
+  isPremium, 
+  onUpgradeClick 
+}: { 
+  userId: string; 
+  language: string; 
+  isPremium: boolean; 
+  onUpgradeClick: () => void;
+}) => {
+  const [nextLesson, setNextLesson] = useState(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const t = TRANSLATIONS[language] || TRANSLATIONS.en;
+
+  useEffect(() => {
+    loadUserPreferences();
+  }, [userId]);
+
+  const loadUserPreferences = async () => {
+    try {
+      const userPrefs = await supabaseHelpers.getUserPreferences(userId);
+      setPreferences(userPrefs);
+    } catch (error) {
+      console.error('Failed to load user preferences:', error);
+    }
+  };
+
+  const getNextLesson = async () => {
+    if (!isPremium) {
+      onUpgradeClick();
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      const response = await fetch('/.netlify/functions/personalizeContent', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          language: language,
+          preferences: preferences
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setNextLesson(result.lesson);
+      } else {
+        console.error('Failed to get next lesson:', result.message);
+      }
+    } catch (error) {
+      console.error('Error getting next lesson:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <motion.div
+      className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-xl p-6 shadow-lg border border-blue-100"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center mb-4">
+        <div className="bg-gradient-to-r from-blue-500 to-purple-600 p-2 rounded-full mr-3">
+          <Brain className="text-white" size={24} />
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-gray-800">{t.personalizedLearning}</h3>
+          <p className="text-gray-600">AI-powered learning recommendations</p>
+        </div>
+      </div>
+
+      {preferences && (
+        <div className="mb-4 p-3 bg-white/60 rounded-lg">
+          <p className="text-sm text-gray-700">
+            <strong>Preferred Subject:</strong> {preferences.preferred_subject} | 
+            <strong> Difficulty:</strong> {preferences.preferred_difficulty}/5 | 
+            <strong> Style:</strong> {preferences.learning_style}
+          </p>
+        </div>
+      )}
+
+      {nextLesson && (
+        <motion.div
+          className="mb-4 p-4 bg-white rounded-lg shadow-sm border border-gray-200"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <h4 className="font-semibold text-gray-800 mb-2">Recommended Next Lesson:</h4>
+          <p className="text-gray-700 mb-2">{nextLesson.title}</p>
+          <p className="text-sm text-gray-600 mb-3">{nextLesson.description}</p>
+          <div className="flex items-center justify-between">
+            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
+              {nextLesson.subject} • {nextLesson.difficulty}/5
+            </span>
+            <motion.button
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-600 transition-colors"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              Start Lesson
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
+
+      <motion.button
+        onClick={getNextLesson}
+        disabled={isLoading || !isPremium}
+        className={`w-full py-3 px-4 rounded-lg font-semibold flex items-center justify-center transition-colors ${
+          !isPremium
+            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            : isLoading
+            ? 'bg-blue-400 text-white cursor-not-allowed'
+            : 'bg-gradient-to-r from-blue-500 to-purple-600 text-white hover:from-blue-600 hover:to-purple-700'
+        }`}
+        whileHover={isPremium && !isLoading ? { scale: 1.02 } : {}}
+        whileTap={isPremium && !isLoading ? { scale: 0.98 } : {}}
+      >
+        {isLoading ? (
+          <>
+            <Loader2 className="animate-spin mr-2" size={20} />
+            Getting your next lesson...
+          </>
+        ) : !isPremium ? (
+          <>
+            <Lock className="mr-2" size={20} />
+            Premium Required
+          </>
+        ) : (
+          <>
+            <Target className="mr-2" size={20} />
+            {t.nextLesson}
+          </>
+        )}
+      </motion.button>
+    </motion.div>
+  );
+};
+
+/**
+ * Gamification Component with Achievements and Leaderboard
+ */
+const GamificationPanel = ({ 
+  userId, 
+  language 
+}: { 
+  userId: string; 
+  language: string;
+}) => {
+  const [achievements, setAchievements] = useState<UserAchievements[]>([]);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [userStats, setUserStats] = useState({ totalPoints: 0, rank: 0, streak: 0 });
+  const [isLoading, setIsLoading] = useState(false);
+  const t = TRANSLATIONS[language] || TRANSLATIONS.en;
+
+  useEffect(() => {
+    loadAchievements();
+    loadLeaderboard();
+  }, [userId]);
+
+  const loadAchievements = async () => {
+    try {
+      const userAchievements = await supabaseHelpers.getUserAchievements(userId);
+      setAchievements(userAchievements);
+      
+      const totalPoints = userAchievements.reduce((sum, achievement) => sum + achievement.points, 0);
+      setUserStats(prev => ({ ...prev, totalPoints }));
+    } catch (error) {
+      console.error('Failed to load achievements:', error);
+    }
+  };
+
+  const loadLeaderboard = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch('/.netlify/functions/achievements', {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        }
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        setLeaderboard(result.leaderboard);
+        setUserStats(prev => ({ ...prev, rank: result.userRank, streak: result.userStreak }));
+      }
+    } catch (error) {
+      console.error('Error loading leaderboard:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const checkForNewAchievements = async () => {
+    try {
+      const response = await fetch('/.netlify/functions/achievements', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        },
+        body: JSON.stringify({
+          user_id: userId,
+          action: 'check_achievements'
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success && result.newAchievements.length > 0) {
+        // Show achievement notification
+        result.newAchievements.forEach(achievement => {
+          showAchievementNotification(achievement);
+        });
+        
+        // Reload achievements
+        loadAchievements();
+      }
+    } catch (error) {
+      console.error('Error checking achievements:', error);
+    }
+  };
+
+  const showAchievementNotification = (achievement) => {
+    // Create a toast notification for new achievement
+    const notification = document.createElement('div');
+    notification.className = 'fixed top-4 right-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-white p-4 rounded-lg shadow-lg z-50 transform translate-x-full transition-transform duration-300';
+    notification.innerHTML = `
+      <div class="flex items-center">
+        <div class="text-2xl mr-3">${achievement.badge_icon}</div>
+        <div>
+          <div class="font-bold">Achievement Unlocked!</div>
+          <div class="text-sm">${achievement.badge_name}</div>
+        </div>
+      </div>
+    `;
+    
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(() => {
+      notification.style.transform = 'translateX(0)';
+    }, 100);
+    
+    // Remove after 3 seconds
+    setTimeout(() => {
+      notification.style.transform = 'translateX(100%)';
+      setTimeout(() => {
+        document.body.removeChild(notification);
+      }, 300);
+    }, 3000);
+  };
+
+  return (
+    <motion.div
+      className="bg-gradient-to-r from-yellow-50 to-orange-50 rounded-xl p-6 shadow-lg border border-yellow-100"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center mb-4">
+        <div className="bg-gradient-to-r from-yellow-500 to-orange-600 p-2 rounded-full mr-3">
+          <Trophy className="text-white" size={24} />
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-gray-800">{t.gamification}</h3>
+          <p className="text-gray-600">Achievements and leaderboard</p>
+        </div>
+      </div>
+
+      {/* User Stats */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="text-center p-3 bg-white/60 rounded-lg">
+          <div className="text-2xl font-bold text-yellow-600">{userStats.totalPoints}</div>
+          <div className="text-sm text-gray-600">Points</div>
+        </div>
+        <div className="text-center p-3 bg-white/60 rounded-lg">
+          <div className="text-2xl font-bold text-orange-600">#{userStats.rank || '?'}</div>
+          <div className="text-sm text-gray-600">Rank</div>
+        </div>
+        <div className="text-center p-3 bg-white/60 rounded-lg">
+          <div className="text-2xl font-bold text-red-600">{userStats.streak}</div>
+          <div className="text-sm text-gray-600">Streak</div>
+        </div>
+      </div>
+
+      {/* Recent Achievements */}
+      <div className="mb-4">
+        <h4 className="font-semibold text-gray-800 mb-2">Recent Achievements</h4>
+        <div className="space-y-2 max-h-32 overflow-y-auto">
+          {achievements.slice(0, 3).map((achievement, index) => (
+            <motion.div
+              key={achievement.id}
+              className="flex items-center p-2 bg-white/60 rounded-lg"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.1 }}
+            >
+              <div className="text-2xl mr-3">{achievement.badge_icon}</div>
+              <div className="flex-1">
+                <div className="font-medium text-gray-800">{achievement.badge_name}</div>
+                <div className="text-xs text-gray-600">{achievement.points} points</div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      {/* Action Buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <motion.button
+          onClick={checkForNewAchievements}
+          className="bg-yellow-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-yellow-600 transition-colors"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <Award className="inline mr-2" size={16} />
+          Check Progress
+        </motion.button>
+        
+        <motion.button
+          onClick={loadLeaderboard}
+          disabled={isLoading}
+          className="bg-orange-500 text-white py-2 px-4 rounded-lg font-medium hover:bg-orange-600 transition-colors disabled:opacity-50"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          {isLoading ? (
+            <Loader2 className="inline animate-spin mr-2" size={16} />
+          ) : (
+            <TrendingUp className="inline mr-2" size={16} />
+          )}
+          {t.leaderboard}
+        </motion.button>
+      </div>
+    </motion.div>
+  );
+};
+
+/**
+ * Social Sharing Component
+ */
+const SocialSharingPanel = ({ 
+  userId, 
+  language, 
+  isPremium, 
+  onUpgradeClick 
+}: { 
+  userId: string; 
+  language: string; 
+  isPremium: boolean; 
+  onUpgradeClick: () => void;
+}) => {
+  const [sharedContent, setSharedContent] = useState<SharedContent[]>([]);
+  const [isSharing, setIsSharing] = useState(false);
+  const [shareUrl, setShareUrl] = useState('');
+  const t = TRANSLATIONS[language] || TRANSLATIONS.en;
+
+  useEffect(() => {
+    loadSharedContent();
+  }, []);
+
+  const loadSharedContent = async () => {
+    try {
+      const content = await supabaseHelpers.getSharedContent(10);
+      setSharedContent(content);
+    } catch (error) {
+      console.error('Failed to load shared content:', error);
+    }
+  };
+
+  const shareCreation = async () => {
+    if (!isPremium) {
+      onUpgradeClick();
+      return;
+    }
+
+    setIsSharing(true);
+    try {
+      // Generate video with Tavus
+      const response = await fetch('/.netlify/functions/generateVideo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        },
+        body: JSON.stringify({
+          topic: 'My Learning Creation',
+          age_group: 'grade1-6',
+          script: 'Check out what I created in EduSphere AI!',
+          userId: userId
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Save to shared content
+        const shareData: SharedContent = {
+          user_id: userId,
+          content_type: 'video',
+          content_title: 'My Learning Creation',
+          share_url: result.video_data?.video_url || 'https://example.com/share',
+          thumbnail_url: result.video_data?.thumbnail_url,
+          description: 'Created with EduSphere AI',
+          views: 0,
+          likes: 0
+        };
+
+        const shareId = await supabaseHelpers.shareContent(shareData);
+        
+        if (shareId) {
+          setShareUrl(`https://edusphere.ai/share/${shareId}`);
+          loadSharedContent(); // Refresh the list
+          
+          // Award achievement for first share
+          await fetch('/.netlify/functions/achievements', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-User-ID': userId
+            },
+            body: JSON.stringify({
+              user_id: userId,
+              action: 'award_achievement',
+              achievement_type: 'social_sharer'
+            })
+          });
+        }
+      }
+    } catch (error) {
+      console.error('Error sharing creation:', error);
+    } finally {
+      setIsSharing(false);
+    }
+  };
+
+  return (
+    <motion.div
+      className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-xl p-6 shadow-lg border border-purple-100"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center mb-4">
+        <div className="bg-gradient-to-r from-purple-500 to-pink-600 p-2 rounded-full mr-3">
+          <Share2 className="text-white" size={24} />
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-gray-800">{t.socialSharing}</h3>
+          <p className="text-gray-600">Share your creations with Tavus videos</p>
+        </div>
+      </div>
+
+      {shareUrl && (
+        <motion.div
+          className="mb-4 p-3 bg-green-100 border border-green-200 rounded-lg"
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+        >
+          <p className="text-green-800 text-sm mb-2">✅ Successfully shared!</p>
+          <div className="flex items-center">
+            <input
+              type="text"
+              value={shareUrl}
+              readOnly
+              className="flex-1 p-2 bg-white border border-green-300 rounded text-sm"
+            />
+            <motion.button
+              onClick={() => navigator.clipboard.writeText(shareUrl)}
+              className="ml-2 bg-green-500 text-white px-3 py-2 rounded text-sm hover:bg-green-600 transition-colors"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+            >
+              Copy
+            </motion.button>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Recent Shared Content */}
+      <div className="mb-4">
+        <h4 className="font-semibold text-gray-800 mb-2">Community Creations</h4>
+        <div className="space-y-2 max-h-32 overflow-y-auto">
+          {sharedContent.slice(0, 3).map((content, index) => (
+            <motion.div
+              key={content.id}
+              className="flex items-center p-2 bg-white/60 rounded-lg"
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.1 }}
+            >
+              <div className="w-8 h-8 bg-purple-200 rounded mr-3 flex items-center justify-center">
+                <VideoIcon size={16} className="text-purple-600" />
+              </div>
+              <div className="flex-1">
+                <div className="font-medium text-gray-800 text-sm">{content.content_title}</div>
+                <div className="text-xs text-gray-600 flex items-center">
+                  <Eye size={12} className="mr-1" />
+                  {content.views}
+                  <Heart size={12} className="ml-2 mr-1" />
+                  {content.likes}
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+
+      <motion.button
+        onClick={shareCreation}
+        disabled={isSharing || !isPremium}
+        className={`w-full py-3 px-4 rounded-lg font-semibold flex items-center justify-center transition-colors ${
+          !isPremium
+            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            : isSharing
+            ? 'bg-purple-400 text-white cursor-not-allowed'
+            : 'bg-gradient-to-r from-purple-500 to-pink-600 text-white hover:from-purple-600 hover:to-pink-700'
+        }`}
+        whileHover={isPremium && !isSharing ? { scale: 1.02 } : {}}
+        whileTap={isPremium && !isSharing ? { scale: 0.98 } : {}}
+      >
+        {isSharing ? (
+          <>
+            <Loader2 className="animate-spin mr-2" size={20} />
+            Creating video...
+          </>
+        ) : !isPremium ? (
+          <>
+            <Lock className="mr-2" size={20} />
+            Premium Required
+          </>
+        ) : (
+          <>
+            <Share2 className="mr-2" size={20} />
+            {t.shareCreation}
+          </>
+        )}
+      </motion.button>
+    </motion.div>
+  );
+};
+
+/**
+ * AI Tutor Component
+ */
+const AITutorPanel = ({ 
+  userId, 
+  language, 
+  isPremium, 
+  onUpgradeClick 
+}: { 
+  userId: string; 
+  language: string; 
+  isPremium: boolean; 
+  onUpgradeClick: () => void;
+}) => {
+  const [selectedTone, setSelectedTone] = useState('friendly');
+  const [tutorScript, setTutorScript] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [savedScripts, setSavedScripts] = useState([]);
+  const t = TRANSLATIONS[language] || TRANSLATIONS.en;
+
+  useEffect(() => {
+    loadSavedScripts();
+  }, []);
+
+  const loadSavedScripts = async () => {
+    try {
+      const scripts = await supabaseHelpers.getTutorScripts({ tone: selectedTone });
+      setSavedScripts(scripts);
+    } catch (error) {
+      console.error('Failed to load tutor scripts:', error);
+    }
+  };
+
+  const generateTutorVideo = async () => {
+    if (!isPremium) {
+      onUpgradeClick();
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const response = await fetch('/.netlify/functions/generateVideo', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': userId
+        },
+        body: JSON.stringify({
+          topic: 'AI Tutor Session',
+          age_group: 'grade1-6',
+          script: tutorScript || 'Hello! I\'m your AI tutor. Let\'s learn something amazing together!',
+          tone: selectedTone,
+          userId: userId
+        })
+      });
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // Save the script
+        await supabaseHelpers.saveTutorScript({
+          tone: selectedTone,
+          script: tutorScript,
+          grade: 'grade1-6',
+          subject: 'general',
+          topic: 'AI Tutor Session',
+          duration_minutes: 2,
+          voice_settings: { tone: selectedTone }
+        });
+
+        // Award achievement for using AI tutor
+        await fetch('/.netlify/functions/achievements', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-User-ID': userId
+          },
+          body: JSON.stringify({
+            user_id: userId,
+            action: 'award_achievement',
+            achievement_type: 'ai_tutor_fan'
+          })
+        });
+
+        loadSavedScripts();
+        alert('AI Tutor video generated successfully!');
+      }
+    } catch (error) {
+      console.error('Error generating tutor video:', error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  return (
+    <motion.div
+      className="bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl p-6 shadow-lg border border-indigo-100"
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+    >
+      <div className="flex items-center mb-4">
+        <div className="bg-gradient-to-r from-indigo-500 to-blue-600 p-2 rounded-full mr-3">
+          <Bot className="text-white" size={24} />
+        </div>
+        <div>
+          <h3 className="text-xl font-bold text-gray-800">{t.aiTutor}</h3>
+          <p className="text-gray-600">Personalized AI tutor with tone selection</p>
+        </div>
+      </div>
+
+      {/* Tone Selector */}
+      <div className="mb-4">
+        <h4 className="font-semibold text-gray-800 mb-2">Select Tutor Tone:</h4>
+        <div className="grid grid-cols-2 gap-2">
+          {Object.entries(TUTOR_TONES).map(([key, tone]) => (
+            <motion.button
+              key={key}
+              onClick={() => setSelectedTone(key)}
+              className={`p-3 rounded-lg border-2 transition-all ${
+                selectedTone === key
+                  ? 'border-indigo-500 bg-indigo-50'
+                  : 'border-gray-200 hover:border-gray-300'
+              }`}
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              <div className="text-2xl mb-1">{tone.icon}</div>
+              <div className="font-medium text-sm">{tone.name}</div>
+              <div className="text-xs text-gray-600">{tone.description}</div>
+            </motion.button>
+          ))}
+        </div>
+      </div>
+
+      {/* Script Input */}
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-2">
+          Custom Script (optional):
+        </label>
+        <textarea
+          value={tutorScript}
+          onChange={(e) => setTutorScript(e.target.value)}
+          placeholder="Enter a custom script for your AI tutor..."
+          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
+          rows={3}
+        />
+      </div>
+
+      {/* Recent Scripts */}
+      {savedScripts.length > 0 && (
+        <div className="mb-4">
+          <h4 className="font-semibold text-gray-800 mb-2">Recent Scripts:</h4>
+          <div className="space-y-1 max-h-20 overflow-y-auto">
+            {savedScripts.slice(0, 2).map((script, index) => (
+              <div key={script.id} className="text-xs p-2 bg-white/60 rounded">
+                <span className={`inline-block px-2 py-1 rounded text-xs ${TUTOR_TONES[script.tone]?.color || 'bg-gray-100'}`}>
+                  {TUTOR_TONES[script.tone]?.name || script.tone}
+                </span>
+                <span className="ml-2 text-gray-600">{script.script.substring(0, 50)}...</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <motion.button
+        onClick={generateTutorVideo}
+        disabled={isGenerating || !isPremium}
+        className={`w-full py-3 px-4 rounded-lg font-semibold flex items-center justify-center transition-colors ${
+          !isPremium
+            ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+            : isGenerating
+            ? 'bg-indigo-400 text-white cursor-not-allowed'
+            : 'bg-gradient-to-r from-indigo-500 to-blue-600 text-white hover:from-indigo-600 hover:to-blue-700'
+        }`}
+        whileHover={isPremium && !isGenerating ? { scale: 1.02 } : {}}
+        whileTap={isPremium && !isGenerating ? { scale: 0.98 } : {}}
+      >
+        {isGenerating ? (
+          <>
+            <Loader2 className="animate-spin mr-2" size={20} />
+            Generating AI Tutor...
+          </>
+        ) : !isPremium ? (
+          <>
+            <Lock className="mr-2" size={20} />
+            Premium Required
+          </>
+        ) : (
+          <>
+            <Mic className="mr-2" size={20} />
+            Generate AI Tutor
+          </>
+        )}
+      </motion.button>
+    </motion.div>
   );
 };
 
@@ -377,471 +1257,6 @@ const handleMultilingualNarration = async (
 };
 
 /**
- * Translate content using Claude Sonnet 4 or fallback
- */
-const translateContent = async (
-  text: string, 
-  targetLanguage: string, 
-  sourceLanguage: string = 'en'
-): Promise<string> => {
-  try {
-    // Check if translation already exists in cache/database
-    const cachedTranslation = await getCachedTranslation(text, targetLanguage);
-    if (cachedTranslation) {
-      return cachedTranslation;
-    }
-
-    // Use Claude Sonnet 4 for translation (premium feature)
-    const userId = getCurrentUserId();
-    
-    const response = await fetch('/.netlify/functions/generateContent', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-User-ID': userId
-      },
-      body: JSON.stringify({
-        prompt: `Translate the following text from ${sourceLanguage} to ${targetLanguage}. Provide only the translation, no explanations: "${text}"`,
-        content_type: 'translation',
-        grade: 'general',
-        subject: 'language',
-        user_id: userId
-      })
-    });
-
-    const result = await response.json();
-    
-    if (result.success && result.content) {
-      // Store translation in database
-      await storeTranslation(text, targetLanguage, result.content);
-      return result.content;
-    }
-
-    // Fallback to simple dictionary lookup or return original
-    return getSimpleTranslation(text, targetLanguage) || text;
-
-  } catch (error) {
-    console.error('Translation failed:', error);
-    return getSimpleTranslation(text, targetLanguage) || text;
-  }
-};
-
-/**
- * Get cached translation from database
- */
-const getCachedTranslation = async (
-  originalText: string, 
-  language: string
-): Promise<string | null> => {
-  try {
-    const response = await fetch(`/.netlify/functions/manageProblems?action=get-translation&text=${encodeURIComponent(originalText)}&language=${language}`);
-    const result = await response.json();
-    
-    if (result.success && result.translation) {
-      return result.translation;
-    }
-    
-    return null;
-  } catch (error) {
-    console.error('Failed to get cached translation:', error);
-    return null;
-  }
-};
-
-/**
- * Store translation in database
- */
-const storeTranslation = async (
-  originalText: string, 
-  language: string, 
-  translatedText: string
-) => {
-  try {
-    await fetch('/.netlify/functions/manageProblems', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        action: 'store_translation',
-        original_text: originalText,
-        language: language,
-        translated_text: translatedText
-      })
-    });
-  } catch (error) {
-    console.error('Failed to store translation:', error);
-  }
-};
-
-/**
- * Simple translation fallback for common phrases
- */
-const getSimpleTranslation = (text: string, language: string): string | null => {
-  const simpleTranslations = {
-    es: {
-      'This is a big gray elephant!': '¡Este es un gran elefante gris!',
-      'Look at this beautiful red circle!': '¡Mira este hermoso círculo rojo!',
-      'Here we have a blue square shape!': '¡Aquí tenemos una forma de cuadrado azul!',
-      'Robot is moving!': '¡El robot se está moviendo!',
-      'Drawing a shape...': 'Dibujando una forma...'
-    },
-    zh: {
-      'This is a big gray elephant!': '这是一只大灰象！',
-      'Look at this beautiful red circle!': '看这个美丽的红圆圈！',
-      'Here we have a blue square shape!': '这里我们有一个蓝色的正方形！',
-      'Robot is moving!': '机器人在移动！',
-      'Drawing a shape...': '正在画形状...'
-    }
-  };
-
-  return simpleTranslations[language]?.[text] || null;
-};
-
-/**
- * Claude Sonnet 4 Content Generator Component with multilingual support
- */
-const ContentGenerator = ({ 
-  isPremium, 
-  onUpgradeClick,
-  language 
-}: { 
-  isPremium: boolean; 
-  onUpgradeClick: () => void;
-  language: string;
-}) => {
-  const [prompt, setPrompt] = useState('');
-  const [contentType, setContentType] = useState('problems');
-  const [grade, setGrade] = useState('kindergarten');
-  const [subject, setSubject] = useState('math');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedContent, setGeneratedContent] = useState<any>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  const t = TRANSLATIONS[language] || TRANSLATIONS.en;
-
-  const contentTypes = [
-    { id: 'problems', name: 'Practice Problems', icon: <BookOpen size={16} /> },
-    { id: 'narration', name: 'Narration Scripts', icon: <Volume2 size={16} /> },
-    { id: 'video', name: 'Video Scripts', icon: <VideoIcon size={16} /> },
-    { id: 'exam', name: 'Mock Exams', icon: <GraduationCap size={16} /> }
-  ];
-
-  const grades = [
-    { id: 'kindergarten', name: 'Kindergarten' },
-    { id: 'grade1-6', name: 'Grades 1-6' },
-    { id: 'grade7-9', name: 'Grades 7-9' },
-    { id: 'grade10-12', name: 'Grades 10-12' },
-    { id: 'matric', name: 'Matric' }
-  ];
-
-  const subjects = [
-    { id: 'math', name: 'Mathematics' },
-    { id: 'physics', name: 'Physics' },
-    { id: 'science', name: 'Science' },
-    { id: 'english', name: 'English' },
-    { id: 'history', name: 'History' },
-    { id: 'geography', name: 'Geography' },
-    { id: 'coding', name: 'Coding' }
-  ];
-
-  /**
-   * Generate educational content using Claude Sonnet 4 with language support
-   */
-  const generateContent = async () => {
-    if (!isPremium) {
-      onUpgradeClick();
-      return;
-    }
-
-    if (!prompt.trim()) {
-      setError('Please enter a prompt for content generation');
-      return;
-    }
-
-    setIsGenerating(true);
-    setError(null);
-    setGeneratedContent(null);
-
-    try {
-      const userId = getCurrentUserId();
-      
-      // Add language specification to the prompt
-      const languagePrompt = language !== 'en' 
-        ? `Generate content in ${LANGUAGES[language]?.name} language. ${prompt.trim()}`
-        : prompt.trim();
-      
-      // Call Claude Sonnet 4 via our backend function
-      const response = await fetch('/.netlify/functions/generateContent', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-User-ID': userId
-        },
-        body: JSON.stringify({
-          prompt: languagePrompt,
-          content_type: contentType,
-          grade,
-          subject,
-          language: language,
-          user_id: userId
-        })
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || 'Failed to generate content');
-      }
-
-      if (result.success) {
-        setGeneratedContent(result.content);
-        
-        // Store in Neon database via manageProblems function
-        await fetch('/.netlify/functions/manageProblems', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': userId
-          },
-          body: JSON.stringify({
-            action: 'store_generated_content',
-            prompt: languagePrompt,
-            content_type: contentType,
-            content: result.content,
-            grade,
-            subject,
-            language: language,
-            user_id: userId
-          })
-        });
-
-        console.log('Multilingual content generated and stored successfully');
-      } else {
-        throw new Error(result.message || 'Content generation failed');
-      }
-
-    } catch (error) {
-      console.error('Content generation error:', error);
-      setError(error.message || 'Failed to generate content. Please try again.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  if (!isPremium) {
-    return (
-      <div className="relative">
-        <div className="filter blur-sm pointer-events-none">
-          <ContentGeneratorForm />
-        </div>
-        <div className="absolute inset-0 bg-black/20 flex items-center justify-center rounded-lg">
-          <motion.button
-            onClick={onUpgradeClick}
-            className="bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-6 py-3 rounded-full font-semibold shadow-lg flex items-center"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.95 }}
-          >
-            <Lock className="mr-2" size={20} />
-            {t.upgradeToPremiun}
-          </motion.button>
-        </div>
-      </div>
-    );
-  }
-
-  function ContentGeneratorForm() {
-    return (
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center">
-            <div className="bg-gradient-to-r from-purple-500 to-blue-500 p-2 rounded-full mr-3">
-              <Sparkles className="text-white" size={20} />
-            </div>
-            <div>
-              <h3 className="text-lg font-semibold text-gray-800">{t.aiContentGenerator}</h3>
-              <p className="text-sm text-gray-600">{t.poweredByClaude}</p>
-            </div>
-          </div>
-          {isPremium && (
-            <div className="flex items-center bg-gradient-to-r from-yellow-400 to-orange-500 text-white px-3 py-1 rounded-full text-sm">
-              <Crown className="mr-1" size={14} />
-              Premium
-            </div>
-          )}
-        </div>
-
-        {/* Content Type Selection */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            {t.contentType}
-          </label>
-          <div className="grid grid-cols-2 gap-2">
-            {contentTypes.map((type) => (
-              <motion.button
-                key={type.id}
-                onClick={() => setContentType(type.id)}
-                className={`flex items-center p-3 rounded-lg border transition-colors ${
-                  contentType === type.id
-                    ? 'border-blue-500 bg-blue-50 text-blue-700'
-                    : 'border-gray-200 hover:border-gray-300'
-                }`}
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-              >
-                {type.icon}
-                <span className="ml-2 text-sm font-medium">{type.name}</span>
-              </motion.button>
-            ))}
-          </div>
-        </div>
-
-        {/* Grade and Subject Selection */}
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t.gradeLevel}
-            </label>
-            <select
-              value={grade}
-              onChange={(e) => setGrade(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {grades.map((g) => (
-                <option key={g.id} value={g.id}>{g.name}</option>
-              ))}
-            </select>
-          </div>
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {t.subject}
-            </label>
-            <select
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              {subjects.map((s) => (
-                <option key={s.id} value={s.id}>{s.name}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Prompt Input */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">
-            {t.describeContent}
-          </label>
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            placeholder={`Example: "Create 5 ${contentType} about fractions for ${grade} students that focus on real-world applications like cooking and shopping"`}
-            className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-            rows={4}
-            maxLength={1000}
-          />
-          <div className="flex justify-between items-center mt-1">
-            <span className="text-xs text-gray-500">
-              {prompt.length}/1000 characters
-            </span>
-            <span className="text-xs text-gray-500">
-              Be specific for better results
-            </span>
-          </div>
-        </div>
-
-        {/* Generate Button */}
-        <motion.button
-          onClick={generateContent}
-          disabled={isGenerating || !prompt.trim()}
-          className={`w-full py-3 px-4 rounded-lg font-semibold flex items-center justify-center transition-colors ${
-            isGenerating || !prompt.trim()
-              ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-              : 'bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700'
-          }`}
-          whileHover={!isGenerating && prompt.trim() ? { scale: 1.02 } : {}}
-          whileTap={!isGenerating && prompt.trim() ? { scale: 0.98 } : {}}
-        >
-          {isGenerating ? (
-            <>
-              <Loader2 className="animate-spin mr-2" size={20} />
-              {t.generatingWithClaude}
-            </>
-          ) : (
-            <>
-              <Send className="mr-2" size={20} />
-              {t.generateContent}
-            </>
-          )}
-        </motion.button>
-
-        {/* Error Display */}
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-3 bg-red-50 border border-red-200 rounded-lg"
-          >
-            <p className="text-red-700 text-sm">{error}</p>
-          </motion.div>
-        )}
-
-        {/* Generated Content Display */}
-        {generatedContent && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="p-4 bg-green-50 border border-green-200 rounded-lg"
-          >
-            <div className="flex items-center mb-3">
-              <Check className="text-green-600 mr-2" size={20} />
-              <h4 className="font-semibold text-green-800">Content Generated Successfully!</h4>
-            </div>
-            
-            <div className="bg-white p-3 rounded border max-h-60 overflow-y-auto">
-              <pre className="whitespace-pre-wrap text-sm text-gray-700">
-                {typeof generatedContent === 'string' 
-                  ? generatedContent 
-                  : JSON.stringify(generatedContent, null, 2)}
-              </pre>
-            </div>
-            
-            <div className="mt-3 flex gap-2">
-              <motion.button
-                onClick={() => navigator.clipboard.writeText(
-                  typeof generatedContent === 'string' 
-                    ? generatedContent 
-                    : JSON.stringify(generatedContent, null, 2)
-                )}
-                className="px-3 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600 transition-colors"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Copy to Clipboard
-              </motion.button>
-              
-              <motion.button
-                onClick={() => setGeneratedContent(null)}
-                className="px-3 py-1 bg-gray-500 text-white text-xs rounded hover:bg-gray-600 transition-colors"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                Clear
-              </motion.button>
-            </div>
-          </motion.div>
-        )}
-      </div>
-    );
-  }
-
-  return <ContentGeneratorForm />;
-};
-
-/**
  * Premium Modal Component
  */
 const PremiumModal = ({ 
@@ -863,7 +1278,10 @@ const PremiumModal = ({
     'AI content generation with Claude Sonnet 4',
     'AI-powered narration with ElevenLabs',
     'Interactive video content with Tavus',
-    'Advanced coding blocks and challenges',
+    'Personalized learning recommendations',
+    'Advanced gamification features',
+    'Social sharing with AI-generated videos',
+    'AI tutor with multiple personality tones',
     'Unlimited access to all learning materials',
     'Progress tracking and analytics',
     'Ad-free learning experience',
@@ -880,7 +1298,7 @@ const PremiumModal = ({
         onClick={onClose}
       >
         <motion.div
-          className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl"
+          className="bg-white rounded-2xl p-8 max-w-md w-full shadow-2xl max-h-[90vh] overflow-y-auto"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
@@ -907,19 +1325,19 @@ const PremiumModal = ({
             <h3 className="text-lg font-semibold mb-4 text-gray-700">
               Unlock Premium Features:
             </h3>
-            <ul className="space-y-3">
+            <ul className="space-y-3 max-h-60 overflow-y-auto">
               {premiumFeatures.map((feature, index) => (
                 <motion.li
                   key={index}
                   className="flex items-center"
                   initial={{ opacity: 0, x: -20 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.1 }}
+                  transition={{ delay: index * 0.05 }}
                 >
                   <div className="bg-green-100 rounded-full p-1 mr-3">
                     <Check className="text-green-600" size={16} />
                   </div>
-                  <span className="text-gray-700">{feature}</span>
+                  <span className="text-gray-700 text-sm">{feature}</span>
                 </motion.li>
               ))}
             </ul>
@@ -966,7 +1384,7 @@ const PremiumModal = ({
 };
 
 /**
- * Main PlayLearnPage component with multilingual support
+ * Main PlayLearnPage component with enhanced features
  */
 const PlayLearnPage: React.FC = () => {
   const navigate = useNavigate();
@@ -977,6 +1395,7 @@ const PlayLearnPage: React.FC = () => {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentLanguage, setCurrentLanguage] = useState('en');
+  const [userId, setUserId] = useState('');
 
   // Get translations for current language
   const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS.en;
@@ -1090,24 +1509,27 @@ const PlayLearnPage: React.FC = () => {
   ];
 
   /**
-   * Initialize premium status check
+   * Initialize user and premium status check
    */
   useEffect(() => {
-    const checkPremiumStatus = async () => {
+    const initializeUser = async () => {
       try {
         setIsLoading(true);
+        const currentUserId = getCurrentUserId();
+        setUserId(currentUserId);
+        
         const premiumStatus = await hasPremiumAccess();
         setIsPremium(premiumStatus);
         console.log('Premium status:', premiumStatus);
       } catch (error) {
-        console.error('Failed to check premium status:', error);
+        console.error('Failed to initialize user:', error);
         setIsPremium(false);
       } finally {
         setIsLoading(false);
       }
     };
 
-    checkPremiumStatus();
+    initializeUser();
   }, []);
 
   /**
@@ -1213,24 +1635,40 @@ const PlayLearnPage: React.FC = () => {
 
       <h1 className="font-serif text-4xl text-blue-800 text-center mb-8">{t.playAndLearn}</h1>
 
-      {/* AI Content Generator Section */}
-      <motion.section
-        className="bg-white p-6 rounded-lg shadow-lg mb-8"
-        initial={{ y: 50, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
-        transition={{ duration: 0.5 }}
-      >
-        <h2 className="font-serif text-2xl text-green-700 mb-6 flex items-center">
-          <Sparkles size={24} className="mr-2" /> {t.aiContentGenerator}
-        </h2>
-        
-        <ContentGenerator 
-          isPremium={isPremium} 
+      {/* Enhanced Features Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+        {/* Personalized Learning */}
+        <PersonalizedLearning 
+          userId={userId}
+          language={currentLanguage}
+          isPremium={isPremium}
           onUpgradeClick={() => setShowPremiumModal(true)}
+        />
+
+        {/* Gamification */}
+        <GamificationPanel 
+          userId={userId}
           language={currentLanguage}
         />
-      </motion.section>
 
+        {/* Social Sharing */}
+        <SocialSharingPanel 
+          userId={userId}
+          language={currentLanguage}
+          isPremium={isPremium}
+          onUpgradeClick={() => setShowPremiumModal(true)}
+        />
+
+        {/* AI Tutor */}
+        <AITutorPanel 
+          userId={userId}
+          language={currentLanguage}
+          isPremium={isPremium}
+          onUpgradeClick={() => setShowPremiumModal(true)}
+        />
+      </div>
+
+      {/* Original Content Sections */}
       {/* Picture Slides Section */}
       <motion.section
         className="bg-white p-6 rounded-lg shadow-lg mb-8"
