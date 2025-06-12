@@ -4,8 +4,8 @@
  * World's Largest Hackathon Project - EduSphere AI
  */
 
-// RevenueCat configuration
-const REVENUECAT_API_KEY = 'sk_5b90f0883a3b75fcee4c72d14d73a042b325f02f554f0b04';
+// RevenueCat configuration - Using public key for client-side operations
+const REVENUECAT_API_KEY = 'pk_test_your_public_key_here'; // Replace with your actual public key from RevenueCat dashboard
 const REVENUECAT_BASE_URL = 'https://api.revenuecat.com/v1';
 
 // Local storage keys for persistent user data
@@ -60,6 +60,12 @@ function getUserId() {
  */
 async function makeRevenueCatRequest(endpoint, method = 'GET', data = null) {
   try {
+    // Check if we have a valid public key
+    if (!REVENUECAT_API_KEY || REVENUECAT_API_KEY === 'pk_test_your_public_key_here') {
+      console.warn('RevenueCat public key not configured, using mock data');
+      return getMockSubscriptionData();
+    }
+    
     const url = `${REVENUECAT_BASE_URL}${endpoint}`;
     
     const options = {
@@ -87,6 +93,11 @@ async function makeRevenueCatRequest(endpoint, method = 'GET', data = null) {
     }
     
     if (!response.ok) {
+      // If we get a 401 with a public key, it might be invalid or expired
+      if (response.status === 401) {
+        console.warn('RevenueCat API returned 401 - check your public key configuration');
+        return getMockSubscriptionData();
+      }
       throw new Error(`RevenueCat API error: ${response.status} ${response.statusText}`);
     }
     
@@ -135,6 +146,21 @@ async function initializeRevenueCat() {
     // Store initialization status globally
     window.revenueCatInitialized = true;
     window.revenueCatUserId = userId;
+    
+    // Check if we have a valid API key before making requests
+    if (!REVENUECAT_API_KEY || REVENUECAT_API_KEY === 'pk_test_your_public_key_here') {
+      console.log('RevenueCat public key not configured, running in mock mode');
+      window.revenueCatMockMode = true;
+      
+      return {
+        success: true,
+        userId: userId,
+        initialized: true,
+        mockMode: true,
+        message: 'Running in mock mode - configure RevenueCat public key for live functionality',
+        timestamp: new Date().toISOString()
+      };
+    }
     
     // Attempt to fetch existing subscriber data
     try {
@@ -197,8 +223,8 @@ async function checkSubscription(forceRefresh = false) {
     
     let subscriptionData;
     
-    // Use mock data if RevenueCat is in mock mode
-    if (window.revenueCatMockMode) {
+    // Use mock data if RevenueCat is in mock mode or API key not configured
+    if (window.revenueCatMockMode || !REVENUECAT_API_KEY || REVENUECAT_API_KEY === 'pk_test_your_public_key_here') {
       subscriptionData = getMockSubscriptionData();
     } else {
       // Make actual API call to RevenueCat
@@ -444,6 +470,9 @@ initializeRevenueCat()
   .then((result) => {
     if (result.success) {
       console.log('RevenueCat initialized successfully for user:', result.userId);
+      if (result.mockMode) {
+        console.log('Note: Running in mock mode. To enable live RevenueCat functionality, replace the API key with your public key from the RevenueCat dashboard.');
+      }
     } else {
       console.log('RevenueCat initialization failed, using mock mode:', result.error);
     }
