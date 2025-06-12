@@ -4,48 +4,7 @@ import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import * as Sentry from '@sentry/react';
 import confetti from 'canvas-confetti';
-import { 
-  Puzzle, 
-  Play, 
-  Video, 
-  X, 
-  Check, 
-  Volume2,
-  VideoIcon,
-  ArrowLeft,
-  Sparkles,
-  Send,
-  BookOpen,
-  FileText,
-  GraduationCap,
-  Loader2,
-  Crown,
-  Lock,
-  Globe,
-  Languages,
-  Mic,
-  MicOff,
-  Camera,
-  Cube,
-  Upload,
-  MessageSquare,
-  Code,
-  BookOpen as BookOpenIcon,
-  Settings,
-  HelpCircle,
-  Award,
-  Users,
-  Zap,
-  Heart,
-  Share2,
-  Lightbulb,
-  PanelLeft,
-  PanelRight,
-  Moon,
-  Sun,
-  Maximize,
-  Minimize
-} from 'lucide-react';
+import { Puzzle, Play, Video, X, Check, Volume2, VideoIcon, ArrowLeft, Sparkles, Send, BookOpen, FileText, GraduationCap, Loader2, Crown, Lock, Globe, Languages, Mic, MicOff, Camera, Cuboid as Cube, Upload, MessageSquare, Code, BookOpen as BookOpenIcon, Settings, HelpCircle, Award, Users, Zap, Heart, Share2, Lightbulb, PanelLeft, PanelRight, Moon, Sun, Maximize, Minimize } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { hasPremiumAccess, getCurrentUserId } from '../lib/revenuecat.js';
 import { supabase, supabaseHelpers } from '../lib/supabase';
