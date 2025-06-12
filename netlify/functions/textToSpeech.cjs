@@ -1,16 +1,42 @@
 /**
- * ElevenLabs Text-to-Speech Netlify Function with RevenueCat Integration
- * Handles AI-powered narration with premium subscription gating
+ * ElevenLabs Text-to-Speech Netlify Function with Multilingual Support and RevenueCat Integration
+ * Handles AI-powered narration with premium subscription gating and language-specific voices
+ * Stores translations in Neon database for caching and reuse
  * World's Largest Hackathon Project - EduSphere AI
  */
 
 const https = require('https');
 const { URL } = require('url');
+const { neon } = require('@neondatabase/serverless');
+
+// Neon database configuration
+const sql = neon(process.env.DATABASE_URL || process.env.NEON_DATABASE_URL);
 
 // ElevenLabs API configuration
 const ELEVENLABS_API_KEY = process.env.ELEVENLABS_API_KEY;
 const ELEVENLABS_BASE_URL = 'https://api.elevenlabs.io/v1';
-const DEFAULT_VOICE_ID = '21m00Tcm4TlvDq8ikWAM'; // Rachel voice (default)
+
+// Language-specific voice configurations
+const LANGUAGE_VOICES = {
+  en: {
+    voiceId: process.env.ELEVENLABS_VOICE_EN || '21m00Tcm4TlvDq8ikWAM', // Rachel (English)
+    name: 'Rachel',
+    language: 'English',
+    model: 'eleven_monolingual_v1'
+  },
+  es: {
+    voiceId: process.env.ELEVENLABS_VOICE_ES || 'XB0fDUnXU5powFXDhCwa', // Charlotte (Spanish)
+    name: 'Charlotte',
+    language: 'Spanish',
+    model: 'eleven_multilingual_v2'
+  },
+  zh: {
+    voiceId: process.env.ELEVENLABS_VOICE_ZH || 'pNInz6obpgDQGcFmaJgB', // Adam (Mandarin)
+    name: 'Adam',
+    language: 'Mandarin Chinese',
+    model: 'eleven_multilingual_v2'
+  }
+};
 
 // RevenueCat configuration (matching src/lib/revenuecat.js)
 const REVENUECAT_API_KEY = 'sk_5b90f0883a3b75fcee4c72d14d73a042b325f02f554f0b04';
@@ -24,6 +50,76 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-User-ID',
 };
+
+/**
+ * Initialize multilingual content table if it doesn't exist
+ * Creates table for storing translations and caching multilingual content
+ */
+async function initializeMultilingualTable() {
+  try {
+    console.log('Initializing multilingual_content table...');
+
+    // Create multilingual_content table with comprehensive schema
+    await sql`
+      CREATE TABLE IF NOT EXISTS multilingual_content (
+        id SERIAL PRIMARY KEY,
+        original_text TEXT NOT NULL,
+        language VARCHAR(10) NOT NULL,
+        translated_text TEXT NOT NULL,
+        source_language VARCHAR(10) DEFAULT 'en',
+        translation_method VARCHAR(50) DEFAULT 'claude_sonnet_4',
+        quality_score INTEGER DEFAULT 5,
+        user_id VARCHAR(255),
+        content_type VARCHAR(50) DEFAULT 'narration',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(original_text, language, source_language)
+      )
+    `;
+
+    // Create indexes for better performance
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_multilingual_original_language ON multilingual_content(original_text, language)
+    `;
+    
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_multilingual_user_id ON multilingual_content(user_id)
+    `;
+    
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_multilingual_created_at ON multilingual_content(created_at)
+    `;
+
+    // Create audio_cache table for storing generated audio metadata
+    await sql`
+      CREATE TABLE IF NOT EXISTS audio_cache (
+        id SERIAL PRIMARY KEY,
+        text_hash VARCHAR(64) NOT NULL,
+        language VARCHAR(10) NOT NULL,
+        voice_id VARCHAR(100) NOT NULL,
+        audio_url TEXT,
+        audio_size INTEGER,
+        duration_seconds DECIMAL(10,2),
+        model_used VARCHAR(50),
+        user_id VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '7 days'),
+        UNIQUE(text_hash, language, voice_id)
+      )
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_audio_cache_hash_lang ON audio_cache(text_hash, language)
+    `;
+
+    console.log('Multilingual tables initialized successfully');
+    return true;
+
+  } catch (error) {
+    console.error('Failed to initialize multilingual tables:', error);
+    throw error;
+  }
+}
 
 /**
  * Make HTTP request using Node.js built-in modules
@@ -185,36 +281,240 @@ async function checkSubscriptionStatus(userId) {
 }
 
 /**
- * Generate speech using ElevenLabs API
+ * Get cached translation from multilingual_content table
+ * @param {string} originalText - Original text to translate
+ * @param {string} targetLanguage - Target language code
+ * @param {string} sourceLanguage - Source language code (default: 'en')
+ * @returns {Promise<string|null>} Cached translation or null if not found
+ */
+async function getCachedTranslation(originalText, targetLanguage, sourceLanguage = 'en') {
+  try {
+    console.log('Checking for cached translation:', { originalText: originalText.substring(0, 50), targetLanguage, sourceLanguage });
+
+    const result = await sql`
+      SELECT translated_text, quality_score, translation_method, created_at
+      FROM multilingual_content 
+      WHERE original_text = ${originalText} 
+        AND language = ${targetLanguage} 
+        AND source_language = ${sourceLanguage}
+      ORDER BY quality_score DESC, created_at DESC
+      LIMIT 1
+    `;
+
+    if (result.length > 0) {
+      console.log('Found cached translation:', {
+        method: result[0].translation_method,
+        quality: result[0].quality_score,
+        age: new Date() - new Date(result[0].created_at)
+      });
+      return result[0].translated_text;
+    }
+
+    return null;
+
+  } catch (error) {
+    console.error('Failed to get cached translation:', error);
+    return null;
+  }
+}
+
+/**
+ * Store translation in multilingual_content table
+ * @param {string} originalText - Original text
+ * @param {string} targetLanguage - Target language code
+ * @param {string} translatedText - Translated text
+ * @param {string} sourceLanguage - Source language code
+ * @param {string} userId - User ID
+ * @param {string} method - Translation method used
+ * @param {number} quality - Quality score (1-10)
+ * @returns {Promise<boolean>} Success status
+ */
+async function storeTranslation(originalText, targetLanguage, translatedText, sourceLanguage = 'en', userId = null, method = 'claude_sonnet_4', quality = 8) {
+  try {
+    console.log('Storing translation:', { 
+      originalLength: originalText.length, 
+      targetLanguage, 
+      method, 
+      quality 
+    });
+
+    await sql`
+      INSERT INTO multilingual_content (
+        original_text, 
+        language, 
+        translated_text, 
+        source_language, 
+        translation_method, 
+        quality_score, 
+        user_id, 
+        content_type,
+        created_at,
+        updated_at
+      ) VALUES (
+        ${originalText}, 
+        ${targetLanguage}, 
+        ${translatedText}, 
+        ${sourceLanguage}, 
+        ${method}, 
+        ${quality}, 
+        ${userId}, 
+        'narration',
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+      ON CONFLICT (original_text, language, source_language)
+      DO UPDATE SET
+        translated_text = ${translatedText},
+        translation_method = ${method},
+        quality_score = GREATEST(multilingual_content.quality_score, ${quality}),
+        updated_at = CURRENT_TIMESTAMP
+    `;
+
+    console.log('Translation stored successfully');
+    return true;
+
+  } catch (error) {
+    console.error('Failed to store translation:', error);
+    return false;
+  }
+}
+
+/**
+ * Translate text using Claude Sonnet 4 (premium feature)
+ * @param {string} text - Text to translate
+ * @param {string} targetLanguage - Target language code
+ * @param {string} sourceLanguage - Source language code
+ * @param {string} userId - User ID for premium check
+ * @returns {Promise<string>} Translated text
+ */
+async function translateWithClaude(text, targetLanguage, sourceLanguage = 'en', userId = null) {
+  try {
+    console.log('Translating with Claude Sonnet 4:', { 
+      textLength: text.length, 
+      from: sourceLanguage, 
+      to: targetLanguage 
+    });
+
+    // Language mapping for Claude
+    const languageNames = {
+      en: 'English',
+      es: 'Spanish',
+      zh: 'Mandarin Chinese'
+    };
+
+    const sourceLangName = languageNames[sourceLanguage] || sourceLanguage;
+    const targetLangName = languageNames[targetLanguage] || targetLanguage;
+
+    // Call Claude Sonnet 4 via generateContent function
+    const response = await fetch('/.netlify/functions/generateContent', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-User-ID': userId || 'system'
+      },
+      body: JSON.stringify({
+        prompt: `Translate the following text from ${sourceLangName} to ${targetLangName}. Provide only the translation, no explanations or additional text. Maintain the original tone and meaning. Text to translate: "${text}"`,
+        content_type: 'translation',
+        grade: 'general',
+        subject: 'language',
+        user_id: userId || 'system'
+      })
+    });
+
+    const result = await response.json();
+
+    if (result.success && result.content) {
+      // Store the translation for future use
+      await storeTranslation(text, targetLanguage, result.content, sourceLanguage, userId, 'claude_sonnet_4', 9);
+      return result.content.trim();
+    }
+
+    throw new Error('Claude translation failed: ' + (result.message || 'Unknown error'));
+
+  } catch (error) {
+    console.error('Claude translation failed:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get simple fallback translation for common phrases
+ * @param {string} text - Text to translate
+ * @param {string} targetLanguage - Target language code
+ * @returns {string|null} Fallback translation or null
+ */
+function getFallbackTranslation(text, targetLanguage) {
+  const fallbackTranslations = {
+    es: {
+      'This is a big gray elephant!': '¡Este es un gran elefante gris!',
+      'Look at this beautiful red circle!': '¡Mira este hermoso círculo rojo!',
+      'Here we have a blue square shape!': '¡Aquí tenemos una forma de cuadrado azul!',
+      'Robot is moving!': '¡El robot se está moviendo!',
+      'Drawing a shape...': 'Dibujando una forma...',
+      'Hello': 'Hola',
+      'Thank you': 'Gracias',
+      'Good morning': 'Buenos días',
+      'Good night': 'Buenas noches'
+    },
+    zh: {
+      'This is a big gray elephant!': '这是一只大灰象！',
+      'Look at this beautiful red circle!': '看这个美丽的红圆圈！',
+      'Here we have a blue square shape!': '这里我们有一个蓝色的正方形！',
+      'Robot is moving!': '机器人在移动！',
+      'Drawing a shape...': '正在画形状...',
+      'Hello': '你好',
+      'Thank you': '谢谢',
+      'Good morning': '早上好',
+      'Good night': '晚安'
+    }
+  };
+
+  return fallbackTranslations[targetLanguage]?.[text] || null;
+}
+
+/**
+ * Generate speech using ElevenLabs API with language-specific voices
  * Converts text to high-quality AI speech with specified voice settings
  * @param {string} text - Text to convert to speech
- * @param {string} voiceId - ElevenLabs voice ID to use
+ * @param {string} language - Language code for voice selection
  * @param {Object} settings - Voice generation settings
  * @returns {Promise<Buffer>} Audio data as MP3 buffer
  */
-async function generateSpeech(text, voiceId = DEFAULT_VOICE_ID, settings = {}) {
+async function generateMultilingualSpeech(text, language = 'en', settings = {}) {
   try {
     if (!ELEVENLABS_API_KEY) {
       throw new Error('ElevenLabs API key not configured in environment variables');
     }
 
-    console.log('Generating speech with ElevenLabs:', {
+    // Get language-specific voice configuration
+    const voiceConfig = LANGUAGE_VOICES[language] || LANGUAGE_VOICES.en;
+    const voiceId = settings.voiceId || voiceConfig.voiceId;
+
+    console.log('Generating multilingual speech with ElevenLabs:', {
       textLength: text.length,
+      language: language,
       voiceId: voiceId,
+      voiceName: voiceConfig.name,
+      model: voiceConfig.model,
       textPreview: text.substring(0, 50) + (text.length > 50 ? '...' : '')
     });
 
-    // Prepare ElevenLabs API request
+    // Prepare ElevenLabs API request with language-specific settings
     const url = `${ELEVENLABS_BASE_URL}/text-to-speech/${voiceId}`;
     const requestData = JSON.stringify({
       text: text.trim(),
-      model_id: settings.model_id || 'eleven_monolingual_v1',
+      model_id: settings.model_id || voiceConfig.model,
       voice_settings: {
-        stability: settings.stability || 0.5,
-        similarity_boost: settings.similarity_boost || 0.5,
-        style: settings.style || 0.0,
-        use_speaker_boost: settings.use_speaker_boost !== false, // Default to true
+        stability: settings.stability || 0.6,
+        similarity_boost: settings.similarity_boost || 0.8,
+        style: settings.style || 0.2,
+        use_speaker_boost: settings.use_speaker_boost !== false,
       },
+      // Add language-specific pronunciation guide if available
+      pronunciation_dictionary_locators: language !== 'en' ? [{
+        pronunciation_dictionary_id: `${language}_pronunciation`,
+        version_id: "latest"
+      }] : undefined
     });
 
     const options = {
@@ -235,7 +535,9 @@ async function generateSpeech(text, voiceId = DEFAULT_VOICE_ID, settings = {}) {
         ? response.data 
         : Buffer.from(response.data);
       
-      console.log('ElevenLabs speech generation successful:', {
+      console.log('ElevenLabs multilingual speech generation successful:', {
+        language: language,
+        voiceName: voiceConfig.name,
         audioSize: audioBuffer.length,
         contentType: response.headers['content-type']
       });
@@ -246,7 +548,7 @@ async function generateSpeech(text, voiceId = DEFAULT_VOICE_ID, settings = {}) {
     }
 
   } catch (error) {
-    console.error('ElevenLabs speech generation failed:', error.message);
+    console.error('ElevenLabs multilingual speech generation failed:', error.message);
     throw error;
   }
 }
@@ -255,39 +557,62 @@ async function generateSpeech(text, voiceId = DEFAULT_VOICE_ID, settings = {}) {
  * Generate fallback speech response using browser's Speech Synthesis API
  * Provides instructions for client-side text-to-speech when premium is unavailable
  * @param {string} text - Text to convert to speech
+ * @param {string} language - Language code
  * @returns {Object} Fallback response with browser TTS instructions
  */
-function generateFallbackSpeech(text) {
-  console.log('Generating fallback speech response for text:', text.substring(0, 50) + '...');
+function generateFallbackSpeech(text, language = 'en') {
+  console.log('Generating fallback speech response for text:', text.substring(0, 50) + '...', 'Language:', language);
+  
+  // Language locale mapping for browser speech synthesis
+  const localeMapping = {
+    en: 'en-US',
+    es: 'es-ES',
+    zh: 'zh-CN'
+  };
+
+  const locale = localeMapping[language] || 'en-US';
   
   return {
     success: true,
     fallback: true,
     message: 'Using browser speech synthesis as fallback',
     text: text,
+    language: language,
+    locale: locale,
     instructions: {
       method: 'speechSynthesis',
-      description: 'Use browser\'s built-in text-to-speech',
+      description: `Use browser's built-in text-to-speech for ${language}`,
       code: `
         const utterance = new SpeechSynthesisUtterance("${text.replace(/"/g, '\\"')}");
         utterance.rate = 0.8;
         utterance.pitch = 1.1;
         utterance.volume = 0.8;
-        utterance.voice = speechSynthesis.getVoices().find(voice => 
-          voice.name.includes('Google') || voice.name.includes('Microsoft')
-        ) || speechSynthesis.getVoices()[0];
+        utterance.lang = "${locale}";
+        
+        // Try to find a voice that matches the language
+        const voices = speechSynthesis.getVoices();
+        const matchingVoice = voices.find(voice => 
+          voice.lang.startsWith("${language}") || 
+          voice.lang.startsWith("${locale.split('-')[0]}")
+        );
+        
+        if (matchingVoice) {
+          utterance.voice = matchingVoice;
+          console.log('Using voice:', matchingVoice.name, matchingVoice.lang);
+        }
+        
         window.speechSynthesis.speak(utterance);
       `,
     },
     usage: {
       description: 'Execute the provided JavaScript code in your browser console or application',
-      note: 'Browser TTS quality may vary depending on the device and browser'
+      note: `Browser TTS quality may vary depending on the device and browser. ${language} voices may not be available on all systems.`
     }
   };
 }
 
 /**
- * Validate text-to-speech request parameters
+ * Validate multilingual text-to-speech request parameters
  * Ensures all required parameters are present and valid
  * @param {Object} body - Request body from client
  * @returns {Object} Validation result with errors if any
@@ -302,6 +627,12 @@ function validateRequest(body) {
     errors.push('Text parameter cannot be empty');
   } else if (body.text.length > 5000) {
     errors.push('Text parameter cannot exceed 5000 characters');
+  }
+
+  // Validate language parameter
+  const supportedLanguages = Object.keys(LANGUAGE_VOICES);
+  if (body.language && !supportedLanguages.includes(body.language)) {
+    errors.push(`Language must be one of: ${supportedLanguages.join(', ')}`);
   }
 
   // Validate voice ID if provided
@@ -357,13 +688,13 @@ function extractUserId(event, requestBody) {
 
 /**
  * Main Netlify function handler
- * Processes text-to-speech requests with RevenueCat subscription gating
+ * Processes multilingual text-to-speech requests with RevenueCat subscription gating
  * @param {Object} event - Netlify event object
  * @param {Object} context - Netlify context object
  * @returns {Object} Response object with audio data or fallback instructions
  */
 exports.handler = async (event, context) => {
-  console.log('Text-to-Speech function invoked:', {
+  console.log('Multilingual Text-to-Speech function invoked:', {
     method: event.httpMethod,
     path: event.path,
     headers: Object.keys(event.headers),
@@ -379,23 +710,27 @@ exports.handler = async (event, context) => {
     };
   }
 
-  // Only allow POST requests for text-to-speech generation
-  if (event.httpMethod !== 'POST') {
-    return {
-      statusCode: 405,
-      headers: {
-        ...corsHeaders,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        success: false,
-        error: 'Method not allowed. Use POST for text-to-speech generation.',
-        allowedMethods: ['POST', 'OPTIONS']
-      }),
-    };
-  }
-
   try {
+    // Initialize database tables
+    await initializeMultilingualTable();
+
+    // Only allow POST requests for text-to-speech generation
+    if (event.httpMethod !== 'POST') {
+      return {
+        statusCode: 405,
+        headers: {
+          ...corsHeaders,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          success: false,
+          error: 'Method not allowed. Use POST for text-to-speech generation.',
+          allowedMethods: ['POST', 'OPTIONS'],
+          supportedLanguages: Object.keys(LANGUAGE_VOICES)
+        }),
+      };
+    }
+
     // Parse request body
     let requestBody;
     try {
@@ -428,6 +763,7 @@ exports.handler = async (event, context) => {
           success: false,
           error: 'Validation failed',
           details: validation.errors,
+          supportedLanguages: Object.keys(LANGUAGE_VOICES)
         }),
       };
     }
@@ -435,19 +771,62 @@ exports.handler = async (event, context) => {
     // Extract parameters from request
     const { 
       text, 
-      voiceId = DEFAULT_VOICE_ID, 
+      language = 'en',
+      voiceId,
       settings = {}
     } = requestBody;
 
     // Extract user ID for subscription checking
     const userId = extractUserId(event, requestBody);
 
-    console.log('Processing TTS request:', {
+    console.log('Processing multilingual TTS request:', {
       textLength: text.length,
-      voiceId,
+      language: language,
+      voiceId: voiceId || 'default',
       userId: userId || '[Not provided]',
       hasCustomSettings: Object.keys(settings).length > 0
     });
+
+    // Handle translation if text is not in target language
+    let finalText = text;
+    if (language !== 'en') {
+      try {
+        // Check for cached translation first
+        const cachedTranslation = await getCachedTranslation(text, language, 'en');
+        
+        if (cachedTranslation) {
+          console.log('Using cached translation for', language);
+          finalText = cachedTranslation;
+        } else {
+          // Try fallback translation for common phrases
+          const fallbackTranslation = getFallbackTranslation(text, language);
+          if (fallbackTranslation) {
+            console.log('Using fallback translation for', language);
+            finalText = fallbackTranslation;
+            // Store fallback translation for future use
+            await storeTranslation(text, language, fallbackTranslation, 'en', userId, 'fallback_dictionary', 6);
+          } else {
+            // For premium users, try Claude translation
+            const subscriptionStatus = await checkSubscriptionStatus(userId);
+            if (subscriptionStatus.isPremium && subscriptionStatus.isActive) {
+              try {
+                console.log('Attempting Claude translation for premium user');
+                finalText = await translateWithClaude(text, language, 'en', userId);
+              } catch (translationError) {
+                console.log('Claude translation failed, using original text:', translationError.message);
+                finalText = text; // Use original text if translation fails
+              }
+            } else {
+              console.log('Non-premium user, using original text for', language);
+              finalText = text; // Non-premium users get original text
+            }
+          }
+        }
+      } catch (translationError) {
+        console.error('Translation process failed:', translationError);
+        finalText = text; // Fallback to original text
+      }
+    }
 
     // Check subscription status via RevenueCat
     const subscriptionStatus = await checkSubscriptionStatus(userId);
@@ -472,17 +851,23 @@ exports.handler = async (event, context) => {
         body: JSON.stringify({
           success: false,
           premium_required: true,
-          message: 'Premium subscription required for AI-powered narration with ElevenLabs',
+          message: `Premium subscription required for AI-powered multilingual narration with ElevenLabs`,
           subscription_status: subscriptionStatus,
-          fallback: generateFallbackSpeech(text),
+          fallback: generateFallbackSpeech(finalText, language),
+          language_info: {
+            requested: language,
+            voice: LANGUAGE_VOICES[language]?.name || 'Default',
+            text_used: finalText
+          },
           upgrade_info: {
-            description: 'Upgrade to premium for high-quality AI voices',
+            description: 'Upgrade to premium for high-quality multilingual AI voices',
             features: [
-              'Professional AI voices from ElevenLabs',
-              'Multiple voice options and accents',
-              'Adjustable speech settings',
+              `Professional ${LANGUAGE_VOICES[language]?.language || 'multilingual'} voices from ElevenLabs`,
+              'Multiple voice options and accents per language',
+              'Adjustable speech settings for each language',
               'Higher quality audio output',
-              'Faster processing times'
+              'Faster processing times',
+              'AI-powered translation with Claude Sonnet 4'
             ]
           }
         }),
@@ -491,9 +876,12 @@ exports.handler = async (event, context) => {
 
     // User has premium access, proceed with ElevenLabs generation
     try {
-      console.log('User has premium access, generating speech with ElevenLabs');
+      console.log('User has premium access, generating multilingual speech with ElevenLabs');
       
-      const audioBuffer = await generateSpeech(text, voiceId, settings);
+      const audioBuffer = await generateMultilingualSpeech(finalText, language, {
+        ...settings,
+        voiceId: voiceId
+      });
       
       // Convert audio buffer to base64 for JSON response
       const audioBase64 = audioBuffer.toString('base64');
@@ -510,15 +898,32 @@ exports.handler = async (event, context) => {
           audio_data: audioBase64,
           audio_format: 'mp3',
           audio_size: audioBuffer.length,
-          text_length: text.length,
-          voice_id: voiceId,
-          settings_used: settings,
+          text_length: finalText.length,
+          original_text: text,
+          final_text: finalText,
+          language: language,
+          voice_info: {
+            voice_id: voiceId || LANGUAGE_VOICES[language]?.voiceId,
+            voice_name: LANGUAGE_VOICES[language]?.name,
+            language_name: LANGUAGE_VOICES[language]?.language,
+            model: LANGUAGE_VOICES[language]?.model
+          },
+          settings_used: {
+            ...settings,
+            voiceId: voiceId || LANGUAGE_VOICES[language]?.voiceId
+          },
           generation_time: new Date().toISOString(),
           subscription_status: subscriptionStatus,
+          translation_info: {
+            was_translated: finalText !== text,
+            source_language: 'en',
+            target_language: language
+          },
           usage_info: {
             provider: 'ElevenLabs',
             quality: 'High',
-            voice: voiceId
+            multilingual: true,
+            voice: LANGUAGE_VOICES[language]?.name || 'Custom'
           }
         }),
       };
@@ -537,9 +942,14 @@ exports.handler = async (event, context) => {
           success: true,
           premium: true,
           elevenlabs_error: elevenlabsError.message,
-          fallback: generateFallbackSpeech(text),
+          fallback: generateFallbackSpeech(finalText, language),
           message: 'ElevenLabs temporarily unavailable, using browser fallback',
           subscription_status: subscriptionStatus,
+          language_info: {
+            requested: language,
+            text_used: finalText,
+            was_translated: finalText !== text
+          },
           retry_info: {
             suggestion: 'Please try again in a few moments',
             fallback_available: true
@@ -560,11 +970,11 @@ exports.handler = async (event, context) => {
       body: JSON.stringify({
         success: false,
         error: 'Internal server error',
-        message: 'An unexpected error occurred while processing your text-to-speech request',
+        message: 'An unexpected error occurred while processing your multilingual text-to-speech request',
         timestamp: new Date().toISOString(),
         support_info: {
           suggestion: 'Please try again or contact support if the issue persists',
-          error_id: `tts_${Date.now()}`
+          error_id: `multilingual_tts_${Date.now()}`
         }
       }),
     };
