@@ -698,7 +698,7 @@ exports.handler = async (event, context) => {
           generated_at: new Date().toISOString()
         }
       }),
-    );
+    };
 
   } catch (error) {
     console.error('Function execution error:', error);
