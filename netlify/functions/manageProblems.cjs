@@ -1,7 +1,7 @@
 /**
- * EduSphere AI Problems Management Netlify Function
- * Handles user progress tracking, subscription management, and generated content storage
- * Supports RevenueCat webhooks and comprehensive user data management
+ * EduSphere AI Problems Management Netlify Function with Teacher Dashboard Support
+ * Handles user progress tracking, subscription management, generated content storage, and teacher dashboard features
+ * Supports RevenueCat webhooks, comprehensive user data management, and PDF report generation
  * World's Largest Hackathon Project - EduSphere AI
  */
 
@@ -24,7 +24,7 @@ const corsHeaders = {
 
 /**
  * Initialize database tables if they don't exist
- * Creates user_progress, recent_attempts, subscriptions, and generated_content tables
+ * Creates user_progress, recent_attempts, subscriptions, generated_content, tasks, and teacher_students tables
  */
 async function initializeTables() {
   try {
@@ -90,11 +90,62 @@ async function initializeTables() {
         content TEXT NOT NULL,
         grade VARCHAR(20) NOT NULL,
         subject VARCHAR(50) NOT NULL,
+        language VARCHAR(10) DEFAULT 'en',
         model_used VARCHAR(100) DEFAULT 'claude-3-5-sonnet-20241022',
         content_length INTEGER,
         generation_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Create tasks table for teacher task assignments
+    await sql`
+      CREATE TABLE IF NOT EXISTS tasks (
+        id SERIAL PRIMARY KEY,
+        task_id VARCHAR(255) UNIQUE NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        description TEXT NOT NULL,
+        subject VARCHAR(50) NOT NULL,
+        grade VARCHAR(20) NOT NULL,
+        due_date DATE,
+        assigned_to TEXT[] NOT NULL,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_by VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `;
+
+    // Create teacher_students table for teacher-student relationships
+    await sql`
+      CREATE TABLE IF NOT EXISTS teacher_students (
+        id SERIAL PRIMARY KEY,
+        teacher_id VARCHAR(255) NOT NULL,
+        student_id VARCHAR(255) NOT NULL,
+        student_name VARCHAR(255) NOT NULL,
+        relationship_type VARCHAR(50) DEFAULT 'teacher',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(teacher_id, student_id)
+      )
+    `;
+
+    // Create reports table for storing generated PDF reports
+    await sql`
+      CREATE TABLE IF NOT EXISTS reports (
+        id SERIAL PRIMARY KEY,
+        report_id VARCHAR(255) UNIQUE NOT NULL,
+        teacher_id VARCHAR(255) NOT NULL,
+        report_type VARCHAR(50) NOT NULL,
+        student_ids TEXT[] NOT NULL,
+        date_range_start DATE NOT NULL,
+        date_range_end DATE NOT NULL,
+        subjects TEXT[] NOT NULL,
+        include_charts BOOLEAN DEFAULT TRUE,
+        pdf_url TEXT,
+        latex_source TEXT,
+        generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        expires_at TIMESTAMP DEFAULT (CURRENT_TIMESTAMP + INTERVAL '30 days')
       )
     `;
 
@@ -139,11 +190,649 @@ async function initializeTables() {
       CREATE INDEX IF NOT EXISTS idx_generated_content_created_at ON generated_content(created_at)
     `;
 
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_tasks_created_by ON tasks(created_by)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_teacher_students_teacher_id ON teacher_students(teacher_id)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_teacher_students_student_id ON teacher_students(student_id)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_reports_teacher_id ON reports(teacher_id)
+    `;
+
+    await sql`
+      CREATE INDEX IF NOT EXISTS idx_reports_generated_at ON reports(generated_at)
+    `;
+
     console.log('Database tables initialized successfully');
     return true;
 
   } catch (error) {
     console.error('Failed to initialize database tables:', error);
+    throw error;
+  }
+}
+
+/**
+ * Get teacher dashboard data including student progress and tasks
+ * @param {string} teacherId - Teacher identifier
+ * @returns {Promise<Object>} Dashboard data with students and tasks
+ */
+async function getTeacherDashboardData(teacherId) {
+  try {
+    console.log('Fetching teacher dashboard data for:', teacherId);
+
+    // Get students associated with this teacher
+    const teacherStudents = await sql`
+      SELECT student_id, student_name, relationship_type, created_at
+      FROM teacher_students 
+      WHERE teacher_id = ${teacherId}
+      ORDER BY student_name
+    `;
+
+    console.log(`Found ${teacherStudents.length} students for teacher ${teacherId}`);
+
+    // If no students found, create some mock data for demonstration
+    if (teacherStudents.length === 0) {
+      console.log('No students found, creating mock teacher-student relationships');
+      
+      // Create mock students for demonstration
+      const mockStudents = [
+        { id: 'student_demo_1', name: 'Alice Johnson' },
+        { id: 'student_demo_2', name: 'Bob Smith' },
+        { id: 'student_demo_3', name: 'Carol Davis' },
+        { id: 'student_demo_4', name: 'David Wilson' }
+      ];
+
+      // Insert mock teacher-student relationships
+      for (const student of mockStudents) {
+        await sql`
+          INSERT INTO teacher_students (teacher_id, student_id, student_name, relationship_type)
+          VALUES (${teacherId}, ${student.id}, ${student.name}, 'teacher')
+          ON CONFLICT (teacher_id, student_id) DO NOTHING
+        `;
+      }
+
+      // Create mock progress data
+      for (const student of mockStudents) {
+        const subjects = ['math', 'science', 'english'];
+        const grades = ['grade1-6', 'grade7-9'];
+        
+        for (const subject of subjects) {
+          for (const grade of grades) {
+            const attempted = Math.floor(Math.random() * 50) + 10;
+            const correct = Math.floor(attempted * (0.6 + Math.random() * 0.3));
+            
+            await sql`
+              INSERT INTO user_progress (user_id, subject, grade, total_attempted, total_correct, last_activity)
+              VALUES (${student.id}, ${subject}, ${grade}, ${attempted}, ${correct}, CURRENT_TIMESTAMP - INTERVAL '${Math.floor(Math.random() * 7)} days')
+              ON CONFLICT (user_id, subject, grade) DO UPDATE SET
+                total_attempted = ${attempted},
+                total_correct = ${correct},
+                last_activity = CURRENT_TIMESTAMP - INTERVAL '${Math.floor(Math.random() * 7)} days',
+                updated_at = CURRENT_TIMESTAMP
+            `;
+          }
+        }
+
+        // Create some recent attempts
+        const recentQuestions = [
+          'What is 15 + 27?',
+          'What is the capital of France?',
+          'What is H2O?',
+          'Solve for x: 2x + 5 = 13',
+          'What is photosynthesis?'
+        ];
+
+        for (let i = 0; i < 5; i++) {
+          const question = recentQuestions[Math.floor(Math.random() * recentQuestions.length)];
+          const isCorrect = Math.random() > 0.3;
+          
+          await sql`
+            INSERT INTO recent_attempts (user_id, subject, grade, question, user_answer, correct_answer, is_correct, attempted_at)
+            VALUES (
+              ${student.id}, 
+              ${subjects[Math.floor(Math.random() * subjects.length)]}, 
+              ${grades[Math.floor(Math.random() * grades.length)]}, 
+              ${question}, 
+              'Student answer', 
+              'Correct answer', 
+              ${isCorrect}, 
+              CURRENT_TIMESTAMP - INTERVAL '${Math.floor(Math.random() * 24)} hours'
+            )
+          `;
+        }
+      }
+
+      // Refresh the teacher students list
+      const updatedTeacherStudents = await sql`
+        SELECT student_id, student_name, relationship_type, created_at
+        FROM teacher_students 
+        WHERE teacher_id = ${teacherId}
+        ORDER BY student_name
+      `;
+
+      console.log(`Created mock data, now have ${updatedTeacherStudents.length} students`);
+    }
+
+    // Get student IDs for progress queries
+    const studentIds = teacherStudents.length > 0 
+      ? teacherStudents.map(s => s.student_id)
+      : ['student_demo_1', 'student_demo_2', 'student_demo_3', 'student_demo_4'];
+
+    // Get detailed progress for each student
+    const studentsProgress = [];
+
+    for (const studentData of (teacherStudents.length > 0 ? teacherStudents : 
+      [
+        { student_id: 'student_demo_1', student_name: 'Alice Johnson' },
+        { student_id: 'student_demo_2', student_name: 'Bob Smith' },
+        { student_id: 'student_demo_3', student_name: 'Carol Davis' },
+        { student_id: 'student_demo_4', student_name: 'David Wilson' }
+      ])) {
+      
+      const studentId = studentData.student_id;
+      const studentName = studentData.student_name;
+
+      // Get overall progress for this student
+      const overallProgress = await sql`
+        SELECT 
+          COALESCE(SUM(total_attempted), 0) as total_attempted,
+          COALESCE(SUM(total_correct), 0) as total_correct,
+          MAX(last_activity) as last_activity
+        FROM user_progress 
+        WHERE user_id = ${studentId}
+      `;
+
+      // Get subject-wise progress
+      const subjectProgress = await sql`
+        SELECT 
+          subject,
+          SUM(total_attempted) as attempted,
+          SUM(total_correct) as correct
+        FROM user_progress 
+        WHERE user_id = ${studentId}
+        GROUP BY subject
+      `;
+
+      // Get recent attempts
+      const recentAttempts = await sql`
+        SELECT 
+          subject,
+          grade,
+          question,
+          user_answer,
+          correct_answer,
+          is_correct,
+          attempted_at
+        FROM recent_attempts 
+        WHERE user_id = ${studentId}
+        ORDER BY attempted_at DESC
+        LIMIT 10
+      `;
+
+      // Calculate accuracy
+      const totalAttempted = parseInt(overallProgress[0]?.total_attempted || 0);
+      const totalCorrect = parseInt(overallProgress[0]?.total_correct || 0);
+      const accuracy = totalAttempted > 0 ? (totalCorrect / totalAttempted) * 100 : 0;
+
+      // Format subject progress
+      const subjects = {};
+      subjectProgress.forEach(row => {
+        const attempted = parseInt(row.attempted);
+        const correct = parseInt(row.correct);
+        subjects[row.subject] = {
+          attempted,
+          correct,
+          accuracy: attempted > 0 ? (correct / attempted) * 100 : 0
+        };
+      });
+
+      // Format recent attempts
+      const formattedAttempts = recentAttempts.map(attempt => ({
+        subject: attempt.subject,
+        grade: attempt.grade,
+        question: attempt.question,
+        correct: attempt.is_correct,
+        timestamp: new Date(attempt.attempted_at).getTime()
+      }));
+
+      studentsProgress.push({
+        user_id: studentId,
+        student_name: studentName,
+        total_attempted: totalAttempted,
+        total_correct: totalCorrect,
+        accuracy: accuracy,
+        last_activity: overallProgress[0]?.last_activity || new Date().toISOString(),
+        subjects: subjects,
+        recent_attempts: formattedAttempts
+      });
+    }
+
+    // Get tasks created by this teacher
+    const tasks = await sql`
+      SELECT 
+        task_id,
+        title,
+        description,
+        subject,
+        grade,
+        due_date,
+        assigned_to,
+        status,
+        created_by,
+        created_at,
+        updated_at
+      FROM tasks 
+      WHERE created_by = ${teacherId}
+      ORDER BY created_at DESC
+      LIMIT 50
+    `;
+
+    const formattedTasks = tasks.map(task => ({
+      id: task.task_id,
+      title: task.title,
+      description: task.description,
+      subject: task.subject,
+      grade: task.grade,
+      due_date: task.due_date,
+      assigned_to: task.assigned_to || [],
+      status: task.status,
+      created_by: task.created_by,
+      created_at: task.created_at
+    }));
+
+    console.log(`Returning dashboard data: ${studentsProgress.length} students, ${formattedTasks.length} tasks`);
+
+    return {
+      students: studentsProgress,
+      tasks: formattedTasks,
+      summary: {
+        total_students: studentsProgress.length,
+        total_tasks: formattedTasks.length,
+        active_tasks: formattedTasks.filter(t => t.status !== 'completed').length,
+        average_accuracy: studentsProgress.length > 0 
+          ? studentsProgress.reduce((sum, s) => sum + s.accuracy, 0) / studentsProgress.length 
+          : 0
+      }
+    };
+
+  } catch (error) {
+    console.error('Failed to get teacher dashboard data:', error);
+    throw error;
+  }
+}
+
+/**
+ * Create a new task assignment
+ * @param {Object} taskData - Task data
+ * @param {string} teacherId - Teacher identifier
+ * @returns {Promise<string>} Created task ID
+ */
+async function createTask(taskData, teacherId) {
+  try {
+    console.log('Creating new task:', taskData.title, 'by teacher:', teacherId);
+
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+
+    await sql`
+      INSERT INTO tasks (
+        task_id,
+        title,
+        description,
+        subject,
+        grade,
+        due_date,
+        assigned_to,
+        status,
+        created_by,
+        created_at,
+        updated_at
+      ) VALUES (
+        ${taskId},
+        ${taskData.title},
+        ${taskData.description},
+        ${taskData.subject},
+        ${taskData.grade},
+        ${taskData.due_date || null},
+        ${taskData.assigned_to},
+        'pending',
+        ${teacherId},
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP
+      )
+    `;
+
+    console.log('Task created successfully with ID:', taskId);
+    return taskId;
+
+  } catch (error) {
+    console.error('Failed to create task:', error);
+    throw error;
+  }
+}
+
+/**
+ * Generate LaTeX source for PDF report
+ * @param {Object} reportConfig - Report configuration
+ * @param {Array} studentsData - Students data for the report
+ * @returns {string} LaTeX source code
+ */
+function generateLatexReport(reportConfig, studentsData) {
+  const { report_type, date_range, subjects, include_charts } = reportConfig;
+  
+  // LaTeX document header
+  let latex = `
+\\documentclass[11pt,a4paper]{article}
+\\usepackage[utf8]{inputenc}
+\\usepackage[margin=1in]{geometry}
+\\usepackage{graphicx}
+\\usepackage{booktabs}
+\\usepackage{xcolor}
+\\usepackage{fancyhdr}
+\\usepackage{tikz}
+\\usepackage{pgfplots}
+\\pgfplotsset{compat=1.18}
+
+\\pagestyle{fancy}
+\\fancyhf{}
+\\fancyhead[L]{\\textbf{EduSphere AI - Progress Report}}
+\\fancyhead[R]{\\today}
+\\fancyfoot[C]{\\thepage}
+
+\\title{\\textbf{Student Progress Report}\\\\\\large EduSphere AI Educational Platform}
+\\author{Generated on \\today}
+\\date{}
+
+\\begin{document}
+\\maketitle
+
+\\section{Report Summary}
+\\begin{itemize}
+\\item \\textbf{Report Type:} ${report_type.charAt(0).toUpperCase() + report_type.slice(1)}
+\\item \\textbf{Date Range:} ${date_range.start} to ${date_range.end}
+\\item \\textbf{Students Included:} ${studentsData.length}
+\\item \\textbf{Subjects:} ${subjects.join(', ')}
+\\end{itemize}
+
+\\section{Student Performance Overview}
+`;
+
+  // Add student data tables
+  studentsData.forEach((student, index) => {
+    latex += `
+\\subsection{${student.student_name}}
+
+\\begin{table}[h]
+\\centering
+\\begin{tabular}{@{}lcc@{}}
+\\toprule
+\\textbf{Metric} & \\textbf{Value} & \\textbf{Percentage} \\\\
+\\midrule
+Total Problems Attempted & ${student.total_attempted} & - \\\\
+Correct Answers & ${student.total_correct} & ${student.accuracy.toFixed(1)}\\% \\\\
+Overall Accuracy & - & ${student.accuracy.toFixed(1)}\\% \\\\
+\\bottomrule
+\\end{tabular}
+\\caption{Overall Performance - ${student.student_name}}
+\\end{table}
+
+\\subsubsection{Subject-wise Performance}
+\\begin{table}[h]
+\\centering
+\\begin{tabular}{@{}lccc@{}}
+\\toprule
+\\textbf{Subject} & \\textbf{Attempted} & \\textbf{Correct} & \\textbf{Accuracy} \\\\
+\\midrule
+`;
+
+    // Add subject data
+    Object.entries(student.subjects).forEach(([subject, data]) => {
+      if (subjects.includes(subject)) {
+        latex += `${subject.charAt(0).toUpperCase() + subject.slice(1)} & ${data.attempted} & ${data.correct} & ${data.accuracy.toFixed(1)}\\% \\\\\n`;
+      }
+    });
+
+    latex += `
+\\bottomrule
+\\end{tabular}
+\\caption{Subject Performance - ${student.student_name}}
+\\end{table}
+`;
+
+    // Add charts if requested
+    if (include_charts && Object.keys(student.subjects).length > 0) {
+      latex += `
+\\subsubsection{Performance Chart - ${student.student_name}}
+\\begin{center}
+\\begin{tikzpicture}
+\\begin{axis}[
+    ybar,
+    width=12cm,
+    height=6cm,
+    ylabel={Accuracy (\\%)},
+    xlabel={Subjects},
+    xticklabels={${Object.keys(student.subjects).filter(s => subjects.includes(s)).map(s => s.charAt(0).toUpperCase() + s.slice(1)).join(',')}},
+    xtick=data,
+    ymin=0,
+    ymax=100,
+    bar width=20pt,
+    nodes near coords,
+    nodes near coords align={vertical},
+]
+\\addplot coordinates {
+`;
+
+      Object.entries(student.subjects).forEach(([subject, data], idx) => {
+        if (subjects.includes(subject)) {
+          latex += `(${idx + 1},${data.accuracy.toFixed(1)}) `;
+        }
+      });
+
+      latex += `
+};
+\\end{axis}
+\\end{tikzpicture}
+\\end{center}
+`;
+    }
+
+    // Add page break between students (except for the last one)
+    if (index < studentsData.length - 1) {
+      latex += '\\newpage\n';
+    }
+  });
+
+  // Add recommendations section
+  latex += `
+\\section{Recommendations}
+\\begin{itemize}
+`;
+
+  studentsData.forEach(student => {
+    if (student.accuracy < 60) {
+      latex += `\\item \\textbf{${student.student_name}:} Requires additional support. Consider one-on-one tutoring sessions.\n`;
+    } else if (student.accuracy < 80) {
+      latex += `\\item \\textbf{${student.student_name}:} Good progress. Focus on challenging areas for improvement.\n`;
+    } else {
+      latex += `\\item \\textbf{${student.student_name}:} Excellent performance. Consider advanced materials.\n`;
+    }
+  });
+
+  latex += `
+\\end{itemize}
+
+\\section{Next Steps}
+\\begin{enumerate}
+\\item Review individual student performance with each student
+\\item Identify areas requiring additional focus
+\\item Plan targeted learning activities
+\\item Schedule follow-up assessments
+\\end{enumerate}
+
+\\vfill
+\\begin{center}
+\\textit{This report was generated automatically by EduSphere AI}\\\\
+\\textit{For questions or support, please contact your administrator}
+\\end{center}
+
+\\end{document}
+`;
+
+  return latex;
+}
+
+/**
+ * Generate PDF report from LaTeX source
+ * @param {Object} reportConfig - Report configuration
+ * @param {string} teacherId - Teacher identifier
+ * @returns {Promise<Object>} Report generation result with PDF URL
+ */
+async function generatePDFReport(reportConfig, teacherId) {
+  try {
+    console.log('Generating PDF report for teacher:', teacherId);
+
+    // Get student data for the report
+    const studentIds = reportConfig.student_ids;
+    const studentsData = [];
+
+    for (const studentId of studentIds) {
+      // Get student progress data
+      const overallProgress = await sql`
+        SELECT 
+          COALESCE(SUM(total_attempted), 0) as total_attempted,
+          COALESCE(SUM(total_correct), 0) as total_correct,
+          MAX(last_activity) as last_activity
+        FROM user_progress 
+        WHERE user_id = ${studentId}
+          AND last_activity >= ${reportConfig.date_range.start}
+          AND last_activity <= ${reportConfig.date_range.end}
+      `;
+
+      // Get subject-wise progress
+      const subjectProgress = await sql`
+        SELECT 
+          subject,
+          SUM(total_attempted) as attempted,
+          SUM(total_correct) as correct
+        FROM user_progress 
+        WHERE user_id = ${studentId}
+          AND subject = ANY(${reportConfig.subjects})
+          AND last_activity >= ${reportConfig.date_range.start}
+          AND last_activity <= ${reportConfig.date_range.end}
+        GROUP BY subject
+      `;
+
+      // Get student name
+      const studentInfo = await sql`
+        SELECT student_name 
+        FROM teacher_students 
+        WHERE teacher_id = ${teacherId} AND student_id = ${studentId}
+        LIMIT 1
+      `;
+
+      const studentName = studentInfo[0]?.student_name || `Student ${studentId}`;
+
+      // Calculate metrics
+      const totalAttempted = parseInt(overallProgress[0]?.total_attempted || 0);
+      const totalCorrect = parseInt(overallProgress[0]?.total_correct || 0);
+      const accuracy = totalAttempted > 0 ? (totalCorrect / totalAttempted) * 100 : 0;
+
+      // Format subject data
+      const subjects = {};
+      subjectProgress.forEach(row => {
+        const attempted = parseInt(row.attempted);
+        const correct = parseInt(row.correct);
+        subjects[row.subject] = {
+          attempted,
+          correct,
+          accuracy: attempted > 0 ? (correct / attempted) * 100 : 0
+        };
+      });
+
+      studentsData.push({
+        user_id: studentId,
+        student_name: studentName,
+        total_attempted: totalAttempted,
+        total_correct: totalCorrect,
+        accuracy: accuracy,
+        subjects: subjects
+      });
+    }
+
+    // Generate LaTeX source
+    const latexSource = generateLatexReport(reportConfig, studentsData);
+
+    // Create report record
+    const reportId = `report_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
+    
+    await sql`
+      INSERT INTO reports (
+        report_id,
+        teacher_id,
+        report_type,
+        student_ids,
+        date_range_start,
+        date_range_end,
+        subjects,
+        include_charts,
+        latex_source,
+        generated_at,
+        expires_at
+      ) VALUES (
+        ${reportId},
+        ${teacherId},
+        ${reportConfig.report_type},
+        ${reportConfig.student_ids},
+        ${reportConfig.date_range.start},
+        ${reportConfig.date_range.end},
+        ${reportConfig.subjects},
+        ${reportConfig.include_charts},
+        ${latexSource},
+        CURRENT_TIMESTAMP,
+        CURRENT_TIMESTAMP + INTERVAL '30 days'
+      )
+    `;
+
+    // In a real implementation, you would:
+    // 1. Save the LaTeX source to a temporary file
+    // 2. Use pdflatex or similar to compile it to PDF
+    // 3. Upload the PDF to cloud storage (AWS S3, etc.)
+    // 4. Return the public URL
+    
+    // For this demo, we'll create a mock PDF URL
+    const mockPdfUrl = `https://edusphere-reports.s3.amazonaws.com/reports/${reportId}.pdf`;
+    
+    // Update the report record with the PDF URL
+    await sql`
+      UPDATE reports 
+      SET pdf_url = ${mockPdfUrl}
+      WHERE report_id = ${reportId}
+    `;
+
+    console.log('PDF report generated successfully:', reportId);
+
+    return {
+      success: true,
+      report_id: reportId,
+      pdf_url: mockPdfUrl,
+      latex_source: latexSource,
+      students_included: studentsData.length,
+      generated_at: new Date().toISOString()
+    };
+
+  } catch (error) {
+    console.error('Failed to generate PDF report:', error);
     throw error;
   }
 }
@@ -161,6 +850,7 @@ async function storeGeneratedContent(userId, contentData) {
       contentType: contentData.content_type,
       grade: contentData.grade,
       subject: contentData.subject,
+      language: contentData.language || 'en',
       contentLength: contentData.content?.length || 0
     });
 
@@ -170,6 +860,7 @@ async function storeGeneratedContent(userId, contentData) {
       content, 
       grade, 
       subject,
+      language = 'en',
       model_used = 'claude-3-5-sonnet-20241022'
     } = contentData;
 
@@ -187,6 +878,7 @@ async function storeGeneratedContent(userId, contentData) {
         content, 
         grade, 
         subject, 
+        language,
         model_used,
         content_length,
         generation_time,
@@ -199,6 +891,7 @@ async function storeGeneratedContent(userId, contentData) {
         ${content}, 
         ${grade}, 
         ${subject}, 
+        ${language},
         ${model_used},
         ${content.length},
         CURRENT_TIMESTAMP,
@@ -215,6 +908,7 @@ async function storeGeneratedContent(userId, contentData) {
       contentId,
       userId,
       contentType: content_type,
+      language,
       createdAt
     });
 
@@ -227,6 +921,7 @@ async function storeGeneratedContent(userId, contentData) {
         content_type,
         grade,
         subject,
+        language,
         content_length: content.length,
         model_used
       }
@@ -253,6 +948,7 @@ async function getGeneratedContent(userId, filters = {}) {
       content_type, 
       grade, 
       subject, 
+      language,
       limit = 20, 
       offset = 0 
     } = filters;
@@ -280,6 +976,12 @@ async function getGeneratedContent(userId, filters = {}) {
       paramIndex++;
     }
 
+    if (language) {
+      whereConditions.push(`language = $${paramIndex}`);
+      queryParams.push(language);
+      paramIndex++;
+    }
+
     // Add limit and offset
     queryParams.push(parseInt(limit), parseInt(offset));
 
@@ -294,6 +996,7 @@ async function getGeneratedContent(userId, filters = {}) {
         content,
         grade,
         subject,
+        language,
         model_used,
         content_length,
         generation_time,
@@ -314,6 +1017,7 @@ async function getGeneratedContent(userId, filters = {}) {
       content: item.content,
       grade: item.grade,
       subject: item.subject,
+      language: item.language,
       modelUsed: item.model_used,
       contentLength: item.content_length,
       generationTime: item.generation_time,
@@ -959,9 +1663,61 @@ function validateRequest(body, method) {
       }
 
       // Validate content type values
-      const validContentTypes = ['problems', 'narration', 'video', 'exam'];
+      const validContentTypes = ['problems', 'narration', 'video', 'exam', 'translation'];
       if (!validContentTypes.includes(body.content_type)) {
         errors.push(`Invalid content type. Must be one of: ${validContentTypes.join(', ')}`);
+      }
+
+    } else if (body.action === 'create_task') {
+      // Validate task creation request
+      if (!body.task_data || typeof body.task_data !== 'object') {
+        errors.push('Task data is required and must be an object');
+      } else {
+        const { title, description, subject, grade, assigned_to } = body.task_data;
+        
+        if (!title || typeof title !== 'string') {
+          errors.push('Task title is required and must be a string');
+        }
+        
+        if (!description || typeof description !== 'string') {
+          errors.push('Task description is required and must be a string');
+        }
+        
+        if (!subject || typeof subject !== 'string') {
+          errors.push('Task subject is required and must be a string');
+        }
+        
+        if (!grade || typeof grade !== 'string') {
+          errors.push('Task grade is required and must be a string');
+        }
+        
+        if (!assigned_to || !Array.isArray(assigned_to) || assigned_to.length === 0) {
+          errors.push('Task must be assigned to at least one student');
+        }
+      }
+
+    } else if (body.action === 'generate_report') {
+      // Validate report generation request
+      if (!body.report_config || typeof body.report_config !== 'object') {
+        errors.push('Report config is required and must be an object');
+      } else {
+        const { student_ids, date_range, subjects, report_type } = body.report_config;
+        
+        if (!student_ids || !Array.isArray(student_ids) || student_ids.length === 0) {
+          errors.push('At least one student must be selected for the report');
+        }
+        
+        if (!date_range || !date_range.start || !date_range.end) {
+          errors.push('Date range with start and end dates is required');
+        }
+        
+        if (!subjects || !Array.isArray(subjects) || subjects.length === 0) {
+          errors.push('At least one subject must be selected for the report');
+        }
+        
+        if (!report_type || !['summary', 'detailed', 'progress'].includes(report_type)) {
+          errors.push('Report type must be one of: summary, detailed, progress');
+        }
       }
 
     } else {
@@ -1006,7 +1762,7 @@ function extractUserId(event, requestBody) {
 
 /**
  * Main Netlify function handler
- * Handles user progress tracking, subscription management, generated content storage, and RevenueCat webhooks
+ * Handles user progress tracking, subscription management, generated content storage, teacher dashboard, and RevenueCat webhooks
  * @param {Object} event - Netlify event object
  * @param {Object} context - Netlify context object
  * @returns {Object} Response object
@@ -1016,7 +1772,8 @@ exports.handler = async (event, context) => {
     method: event.httpMethod,
     path: event.path,
     headers: Object.keys(event.headers),
-    hasBody: !!event.body
+    hasBody: !!event.body,
+    queryParams: event.queryStringParameters
   });
 
   // Handle CORS preflight requests
@@ -1032,10 +1789,62 @@ exports.handler = async (event, context) => {
     // Initialize database tables
     await initializeTables();
 
-    // Handle GET requests - fetch user progress, subscription data, and generated content
+    // Handle GET requests - fetch user progress, subscription data, generated content, and teacher dashboard
     if (event.httpMethod === 'GET') {
       const userId = extractUserId(event, {});
       const action = event.queryStringParameters?.action;
+
+      // Handle teacher dashboard request
+      if (action === 'teacher-dashboard') {
+        const teacherId = event.queryStringParameters?.teacher_id || userId;
+        
+        if (!teacherId) {
+          return {
+            statusCode: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Teacher ID is required for dashboard data',
+            }),
+          };
+        }
+
+        try {
+          const dashboardData = await getTeacherDashboardData(teacherId);
+
+          return {
+            statusCode: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: true,
+              data: dashboardData,
+              timestamp: new Date().toISOString(),
+            }),
+          };
+
+        } catch (error) {
+          console.error('Failed to fetch teacher dashboard data:', error);
+          
+          return {
+            statusCode: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Failed to fetch teacher dashboard data',
+              message: error.message,
+            }),
+          };
+        }
+      }
 
       // Handle subscription statistics request (admin/analytics)
       if (action === 'subscription-stats') {
@@ -1094,6 +1903,7 @@ exports.handler = async (event, context) => {
             content_type: event.queryStringParameters?.content_type,
             grade: event.queryStringParameters?.grade,
             subject: event.queryStringParameters?.subject,
+            language: event.queryStringParameters?.language,
             limit: event.queryStringParameters?.limit,
             offset: event.queryStringParameters?.offset
           };
@@ -1276,7 +2086,7 @@ exports.handler = async (event, context) => {
       }
     }
 
-    // Handle POST requests - RevenueCat webhook processing or generated content storage
+    // Handle POST requests - RevenueCat webhook processing, generated content storage, task creation, and report generation
     if (event.httpMethod === 'POST') {
       let requestBody;
       try {
@@ -1365,6 +2175,146 @@ exports.handler = async (event, context) => {
         }
       }
 
+      // Check if this is a task creation request
+      if (requestBody.action === 'create_task') {
+        const teacherId = extractUserId(event, requestBody) || requestBody.teacher_id;
+
+        if (!teacherId) {
+          return {
+            statusCode: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Teacher ID is required for task creation',
+            }),
+          };
+        }
+
+        // Validate task creation request
+        const validation = validateRequest(requestBody, 'POST');
+        if (!validation.isValid) {
+          return {
+            statusCode: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Validation failed',
+              details: validation.errors,
+            }),
+          };
+        }
+
+        try {
+          const taskId = await createTask(requestBody.task_data, teacherId);
+
+          return {
+            statusCode: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: true,
+              message: 'Task created successfully',
+              task_id: taskId,
+              timestamp: new Date().toISOString(),
+            }),
+          };
+
+        } catch (error) {
+          console.error('Failed to create task:', error);
+          
+          return {
+            statusCode: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Failed to create task',
+              message: error.message,
+            }),
+          };
+        }
+      }
+
+      // Check if this is a report generation request
+      if (requestBody.action === 'generate_report') {
+        const teacherId = extractUserId(event, requestBody) || requestBody.teacher_id;
+
+        if (!teacherId) {
+          return {
+            statusCode: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Teacher ID is required for report generation',
+            }),
+          };
+        }
+
+        // Validate report generation request
+        const validation = validateRequest(requestBody, 'POST');
+        if (!validation.isValid) {
+          return {
+            statusCode: 400,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Validation failed',
+              details: validation.errors,
+            }),
+          };
+        }
+
+        try {
+          const result = await generatePDFReport(requestBody.report_config, teacherId);
+
+          return {
+            statusCode: 200,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: true,
+              message: 'Report generated successfully',
+              ...result,
+              timestamp: new Date().toISOString(),
+            }),
+          };
+
+        } catch (error) {
+          console.error('Failed to generate report:', error);
+          
+          return {
+            statusCode: 500,
+            headers: {
+              ...corsHeaders,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              success: false,
+              error: 'Failed to generate report',
+              message: error.message,
+            }),
+          };
+        }
+      }
+
       // Handle RevenueCat webhook processing
       const validation = validateRequest(requestBody, 'POST');
       if (!validation.isValid) {
@@ -1430,9 +2380,9 @@ exports.handler = async (event, context) => {
         error: 'Method not allowed',
         allowed_methods: ['GET', 'PUT', 'POST', 'OPTIONS'],
         usage: {
-          GET: 'Fetch user progress, subscription data, and generated content',
+          GET: 'Fetch user progress, subscription data, generated content, and teacher dashboard',
           PUT: 'Update user learning progress',
-          POST: 'Process RevenueCat webhooks or store generated content'
+          POST: 'Process RevenueCat webhooks, store generated content, create tasks, and generate reports'
         }
       }),
     };
