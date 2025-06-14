@@ -1,4 +1,3 @@
-```sql
 -- EduSphere AI Enhanced Supabase Database Schema
 -- Creates tables for advanced features: AR, crowdsourcing, voice quizzes, auth, real-time, and storytelling
 -- World's Largest Hackathon Project - EduSphere AI
@@ -278,15 +277,15 @@ ON CONFLICT DO NOTHING;
 
 -- Function to create hash for text content
 CREATE OR REPLACE FUNCTION create_text_hash(p_text TEXT)
-RETURNS VARCHAR(64) AS $$
+RETURNS VARCHAR(64) AS $$  
 BEGIN
     RETURN encode(sha256(p_text::bytea), 'hex');
 END;
-$$ LANGUAGE plpgsql;
+  $$ LANGUAGE plpgsql;
 
 -- Function to check if user has completed a voice quiz
 CREATE OR REPLACE FUNCTION has_completed_voice_quiz(p_user_id VARCHAR(255), p_quiz_id UUID)
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN AS $$  
 DECLARE
     has_completed BOOLEAN;
 BEGIN
@@ -297,7 +296,7 @@ BEGIN
     
     RETURN has_completed;
 END;
-$$ LANGUAGE plpgsql;
+  $$ LANGUAGE plpgsql;
 
 -- Function to get user's AR progress summary
 CREATE OR REPLACE FUNCTION get_ar_progress_summary(p_user_id VARCHAR(255))
@@ -306,7 +305,7 @@ RETURNS TABLE(
     correct_attempts INTEGER,
     accuracy DECIMAL(5,2),
     object_types TEXT[]
-) AS $$
+) AS $$  
 BEGIN
     RETURN QUERY
     WITH attempts AS (
@@ -325,7 +324,7 @@ BEGIN
         objects
     FROM attempts;
 END;
-$$ LANGUAGE plpgsql;
+  $$ LANGUAGE plpgsql;
 
 -- =====================================================
 -- COMMENTS AND DOCUMENTATION
@@ -370,4 +369,3 @@ COMMENT ON TABLE live_sessions IS 'Supports real-time collaborative coding and l
 -- 5. Implement analytics queries for usage patterns and optimization
 
 -- End of EduSphere AI Enhanced Schema
-```
