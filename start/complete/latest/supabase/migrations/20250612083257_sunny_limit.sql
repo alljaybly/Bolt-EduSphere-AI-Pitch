@@ -1,3 +1,4 @@
+```sql
 -- EduSphere AI Enhanced Supabase Database Schema
 -- Creates tables for advanced features: AR, crowdsourcing, voice quizzes, auth, real-time, and storytelling
 -- World's Largest Hackathon Project - EduSphere AI
@@ -227,12 +228,12 @@ ON CONFLICT DO NOTHING;
 
 -- Sample voice quizzes
 INSERT INTO voice_quizzes (question, answer, language, difficulty, grade_level, subject, alternative_answers, hint) VALUES
-('What color is the sky on a clear day?', 'blue', 'en', 'easy', 'kindergarten', 'science', ARRAY['sky blue', 'light blue'], 'Look up on a sunny day'),
-('How many days are in a week?', 'seven', 'en', 'easy', 'kindergarten', 'math', ARRAY['7'], 'Monday through Sunday'),
-('What is the capital of France?', 'Paris', 'en', 'medium', 'grade1-6', 'geography', ARRAY[], 'It has a famous tower'),
-('¿De qué color es el cielo en un día despejado?', 'azul', 'es', 'easy', 'kindergarten', 'science', ARRAY['celeste'], 'Mira hacia arriba en un día soleado'),
-('¿Cuántos días hay en una semana?', 'siete', 'es', 'easy', 'kindergarten', 'math', ARRAY['7'], 'De lunes a domingo'),
-('晴天时天空是什么颜色？', '蓝色', 'zh', 'easy', 'kindergarten', 'science', ARRAY['蓝'], '在晴朗的日子抬头看')
+('What color is the sky on a clear day?', 'blue', 'en', 'easy', 'kindergarten', 'science', ARRAY['sky blue', 'light blue']::TEXT[], 'Look up on a sunny day'),
+('How many days are in a week?', 'seven', 'en', 'easy', 'kindergarten', 'math', ARRAY['7']::TEXT[], 'Monday through Sunday'),
+('What is the capital of France?', 'Paris', 'en', 'medium', 'grade1-6', 'geography', ARRAY[]::TEXT[], 'It has a famous tower'),
+('¿De qué color es el cielo en un día despejado?', 'azul', 'es', 'easy', 'kindergarten', 'science', ARRAY['celeste']::TEXT[], 'Mira hacia arriba en un día soleado'),
+('¿Cuántos días hay en una semana?', 'siete', 'es', 'easy', 'kindergarten', 'math', ARRAY['7']::TEXT[], 'De lunes a domingo'),
+('晴天时天空是什么颜色？', '蓝色', 'zh', 'easy', 'kindergarten', 'science', ARRAY['蓝']::TEXT[], '在晴朗的日子抬头看')
 ON CONFLICT DO NOTHING;
 
 -- Sample narratives
@@ -369,3 +370,4 @@ COMMENT ON TABLE live_sessions IS 'Supports real-time collaborative coding and l
 -- 5. Implement analytics queries for usage patterns and optimization
 
 -- End of EduSphere AI Enhanced Schema
+```
