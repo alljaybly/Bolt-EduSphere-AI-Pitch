@@ -1,0 +1,26 @@
+{
+  "enter_button": "Enter the Realm of Learning",
+  "select_subject": "Select a Subject",
+  "subjects": {
+    "math": "Mathematics",
+    "physics": "Physics",
+    "science": "Science",
+    "english": "English",
+    "history": "History",
+    "geography": "Geography",
+    "coding": "Coding"
+  },
+  "grades": {
+    "kindergarten": "Kindergarten",
+    "grade1-6": "Grades 1-6",
+    "grade7-9": "Grades 7-9",
+    "grade10-12": "Grades 10-12",
+    "matric": "Matric"
+  },
+  "progress": {
+    "total_problems": "Total Problems",
+    "overall_accuracy": "Overall Accuracy",
+    "recent_activity": "Recent Activity",
+    "no_activity": "No activity yet. Start solving problems to see your progress!"
+  }
+}
