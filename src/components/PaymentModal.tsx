@@ -1,17 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { 
-  X, 
-  Crown, 
-  Check, 
-  Star, 
-  Zap, 
-  Shield, 
-  Credit,
-  Loader2,
-  AlertCircle,
-  CheckCircle
-} from 'lucide-react';
+import { X, Crown, Check, Star, Zap, Shield, CreditCard as Credit, Loader2, AlertCircle, CheckCircle } from 'lucide-react';
 import { 
   initializePayPal, 
   createSubscription, 
