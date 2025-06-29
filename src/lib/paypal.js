@@ -135,6 +135,32 @@ async function createPayPalPayment(paymentData) {
 }
 
 /**
+ * Create one-time payment (alias for createPayPalPayment for compatibility)
+ * @param {Object} paymentData - Payment details
+ * @returns {Promise<Object>} Payment creation result
+ */
+async function createOneTimePayment(paymentData) {
+  return createPayPalPayment(paymentData);
+}
+
+/**
+ * Create subscription (simplified interface)
+ * @param {Object} subscriptionData - Subscription details
+ * @returns {Promise<Object>} Subscription creation result
+ */
+async function createSubscription(subscriptionData) {
+  return createPayPalSubscription(subscriptionData);
+}
+
+/**
+ * Initialize PayPal (simplified interface)
+ * @returns {Promise<Object>} PayPal SDK instance
+ */
+async function initializePayPal() {
+  return initializePayPalSDK();
+}
+
+/**
  * Capture PayPal payment after approval
  * @param {string} orderId - PayPal order ID
  * @returns {Promise<Object>} Capture result
@@ -588,6 +614,9 @@ function clearPayPalData() {
 export {
   getPayPalAccessToken,
   createPayPalPayment,
+  createOneTimePayment,
+  createSubscription,
+  initializePayPal,
   capturePayPalPayment,
   createPayPalSubscriptionPlan,
   createPayPalSubscription,
