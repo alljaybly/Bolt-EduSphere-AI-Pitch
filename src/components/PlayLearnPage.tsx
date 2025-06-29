@@ -37,9 +37,9 @@ import {
   Wand2,
   Volume2
 } from 'lucide-react';
-import { getCurrentUserId, hasPremiumAccess } from '../lib/revenuecat.js';
 import { supabase } from '../lib/supabase';
 import confetti from 'canvas-confetti';
+import PaymentModal from './PaymentModal';
 
 /**
  * Play & Learn Page Component
@@ -83,6 +83,7 @@ const PlayLearnPage: React.FC = () => {
   const [showMobileMenu, setShowMobileMenu] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
 
   // Feature definitions
   const features: Feature[] = [
@@ -224,8 +225,8 @@ const PlayLearnPage: React.FC = () => {
       try {
         setIsLoading(true);
 
-        // Check premium status
-        const premiumStatus = await hasPremiumAccess();
+        // Check premium status using PayPal
+        const premiumStatus = await checkPremiumSubscription();
         setIsPremium(premiumStatus);
 
         // Load user statistics
@@ -248,6 +249,38 @@ const PlayLearnPage: React.FC = () => {
 
     initializePage();
   }, []);
+
+  /**
+   * Check if user has premium subscription via PayPal
+   */
+  const checkPremiumSubscription = async () => {
+    try {
+      // Call PayPal subscription check endpoint
+      const response = await fetch('/.netlify/functions/paypal-subscription', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': getCurrentUserId()
+        },
+        body: JSON.stringify({
+          action: 'check_subscription'
+        })
+      });
+
+      const result = await response.json();
+      return result.success && result.hasActiveSubscription;
+    } catch (error) {
+      console.error('Failed to check premium subscription:', error);
+      return false;
+    }
+  };
+
+  /**
+   * Get current user ID from local storage
+   */
+  const getCurrentUserId = () => {
+    return localStorage.getItem('edusphere_user_id') || 'anonymous_user';
+  };
 
   /**
    * Load user statistics from Supabase
@@ -300,7 +333,7 @@ const PlayLearnPage: React.FC = () => {
   const handleFeatureSelect = (feature: Feature) => {
     if (feature.isPremium && !isPremium) {
       // Show premium upgrade modal
-      showPremiumModal(feature);
+      setShowPaymentModal(true);
       return;
     }
 
@@ -316,31 +349,18 @@ const PlayLearnPage: React.FC = () => {
   };
 
   /**
-   * Show premium upgrade modal
+   * Handle successful payment/subscription
    */
-  const showPremiumModal = (feature: Feature) => {
-    const modal = document.createElement('div');
-    modal.className = 'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4';
-    modal.innerHTML = `
-      <div class="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl">
-        <div class="text-yellow-500 mb-4">
-          <svg class="w-16 h-16 mx-auto" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
-          </svg>
-        </div>
-        <h2 class="text-2xl font-bold text-gray-800 mb-4">Premium Feature</h2>
-        <p class="text-gray-600 mb-6">${feature.title} requires a premium subscription to access advanced features and unlimited usage.</p>
-        <div class="space-y-3">
-          <button onclick="this.parentElement.parentElement.parentElement.remove()" class="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:shadow-lg transition-all">
-            Upgrade to Premium
-          </button>
-          <button onclick="this.parentElement.parentElement.parentElement.remove()" class="w-full text-gray-600 py-2 hover:bg-gray-100 rounded-lg transition-colors">
-            Maybe Later
-          </button>
-        </div>
-      </div>
-    `;
-    document.body.appendChild(modal);
+  const handlePaymentSuccess = () => {
+    setIsPremium(true);
+    setShowPaymentModal(false);
+    
+    // Show celebration
+    confetti({
+      particleCount: 100,
+      spread: 70,
+      origin: { y: 0.6 }
+    });
   };
 
   /**
@@ -701,6 +721,7 @@ const PlayLearnPage: React.FC = () => {
               Get access to AR learning, collaborative coding, AI tutoring, and much more!
             </p>
             <motion.button
+              onClick={() => setShowPaymentModal(true)}
               className="bg-yellow-400 text-purple-900 px-8 py-4 rounded-lg font-bold text-lg hover:bg-yellow-300 transition-colors"
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
@@ -710,6 +731,13 @@ const PlayLearnPage: React.FC = () => {
           </motion.div>
         )}
       </main>
+
+      {/* Payment Modal */}
+      <PaymentModal 
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 };
