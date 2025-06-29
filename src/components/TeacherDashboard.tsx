@@ -29,7 +29,7 @@ import {
   Star,
   Zap
 } from 'lucide-react';
-import { getCurrentUserId } from '../lib/revenuecat.js';
+import { getCurrentUserId } from '../lib/authUtils';
 
 // Types for TypeScript
 interface StudentProgress {
@@ -641,7 +641,7 @@ const TeacherDashboard: React.FC = () => {
         throw new Error(result.message || 'Failed to load dashboard data');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to fetch student progress:', error);
       setError(error.message || 'Failed to load student data');
       
@@ -727,7 +727,7 @@ const TeacherDashboard: React.FC = () => {
         throw new Error(result.message || 'Failed to create task');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to create task:', error);
       alert('Failed to create task. Please try again.');
     }
@@ -769,7 +769,7 @@ const TeacherDashboard: React.FC = () => {
         throw new Error(result.message || 'Failed to generate report');
       }
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to generate report:', error);
       alert('Failed to generate report. Please try again.');
     }

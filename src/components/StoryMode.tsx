@@ -31,7 +31,8 @@ import {
   Languages
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { hasPremiumAccess, getCurrentUserId } from '../lib/revenuecat.js';
+import { hasActiveSubscription } from '../lib/paypal.js';
+import { getCurrentUserId } from '../lib/authUtils';
 import { supabase } from '../lib/supabase';
 import confetti from 'canvas-confetti';
 
@@ -92,7 +93,7 @@ const StoryMode: React.FC = () => {
         setIsLoading(true);
         
         // Check premium access
-        const premiumStatus = await hasPremiumAccess();
+        const premiumStatus = await hasActiveSubscription();
         setIsPremium(premiumStatus);
 
         // Load stories from Supabase
