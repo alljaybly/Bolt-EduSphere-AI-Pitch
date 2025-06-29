@@ -1,265 +1,226 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
-  CreditCard, 
-  Crown, 
   X, 
+  Crown, 
   Check, 
   Star, 
   Zap, 
   Shield, 
-  Gift,
+  Credit,
   Loader2,
   AlertCircle,
   CheckCircle
 } from 'lucide-react';
 import { 
-  createPayPalPaymentButton, 
-  createPayPalSubscriptionButton,
-  createPayPalSubscriptionPlan,
-  hasActiveSubscription,
-  getPaymentHistory
+  initializePayPal, 
+  createSubscription, 
+  createOneTimePayment,
+  hasActiveSubscription
 } from '../lib/paypal.js';
-import { getCurrentUserId } from '../lib/revenuecat.js';
+import { getCurrentUserId } from '../lib/authUtils';
 import confetti from 'canvas-confetti';
 
 interface PaymentModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess?: (result: any) => void;
-  defaultTab?: 'one-time' | 'subscription';
+  onSuccess?: () => void;
 }
 
-/**
- * Payment Modal Component
- * Handles both PayPal one-time payments and subscriptions
- */
-const PaymentModal: React.FC<PaymentModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  onSuccess,
-  defaultTab = 'subscription'
-}) => {
-  const [activeTab, setActiveTab] = useState<'one-time' | 'subscription'>(defaultTab);
-  const [isLoading, setIsLoading] = useState(false);
+interface PricingPlan {
+  id: string;
+  name: string;
+  price: number;
+  period: string;
+  features: string[];
+  popular?: boolean;
+  paypalPlanId?: string;
+}
+
+const PaymentModal: React.FC<PaymentModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const [selectedPlan, setSelectedPlan] = useState<string>('monthly');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [hasActiveSubscriptionState, setHasActiveSubscriptionState] = useState(false);
-  
-  // PayPal button container refs
-  const oneTimePaymentRef = useRef<HTMLDivElement>(null);
-  const subscriptionPaymentRef = useRef<HTMLDivElement>(null);
+  const [paypalLoaded, setPaypalLoaded] = useState(false);
+  const [currentSubscription, setCurrentSubscription] = useState<any>(null);
 
-  // Payment/subscription options
-  const oneTimeOptions = [
-    {
-      id: 'premium_day',
-      name: '1 Day Premium',
-      price: 2.99,
-      description: 'Full access for 24 hours',
-      features: ['AR Problems', 'Live Code', 'Premium Stories', 'Voice Recognition']
-    },
-    {
-      id: 'premium_week',
-      name: '1 Week Premium',
-      price: 9.99,
-      description: 'Full access for 7 days',
-      features: ['AR Problems', 'Live Code', 'Premium Stories', 'Voice Recognition', 'Priority Support']
-    },
-    {
-      id: 'premium_month',
-      name: '1 Month Premium',
-      price: 19.99,
-      description: 'Full access for 30 days',
-      features: ['AR Problems', 'Live Code', 'Premium Stories', 'Voice Recognition', 'Priority Support', 'Advanced Analytics']
-    }
-  ];
-
-  const subscriptionOptions = [
+  // Pricing plans
+  const plans: PricingPlan[] = [
     {
       id: 'monthly',
       name: 'Monthly Premium',
-      price: 14.99,
-      interval: 'month',
-      description: 'Billed monthly, cancel anytime',
-      features: ['All Premium Features', 'Unlimited Access', 'Priority Support', 'New Features First'],
-      popular: true
+      price: 9.99,
+      period: 'month',
+      paypalPlanId: 'P-MONTHLY-PREMIUM-PLAN',
+      features: [
+        'Unlimited AI-generated content',
+        'Advanced voice recognition',
+        'AR learning experiences',
+        'Real-time collaboration',
+        'Premium story mode',
+        'Priority support',
+        'Offline access'
+      ]
     },
     {
       id: 'yearly',
       name: 'Yearly Premium',
-      price: 149.99,
-      interval: 'year',
-      description: 'Save 17% with annual billing',
-      features: ['All Premium Features', 'Unlimited Access', 'Priority Support', 'New Features First', '2 Months Free'],
-      savings: '17% OFF'
+      price: 99.99,
+      period: 'year',
+      popular: true,
+      paypalPlanId: 'P-YEARLY-PREMIUM-PLAN',
+      features: [
+        'All monthly features',
+        '2 months free (save 17%)',
+        'Advanced analytics',
+        'Custom learning paths',
+        'Family sharing (up to 5 users)',
+        'Early access to new features',
+        'Dedicated account manager'
+      ]
+    },
+    {
+      id: 'lifetime',
+      name: 'Lifetime Access',
+      price: 299.99,
+      period: 'lifetime',
+      features: [
+        'All premium features forever',
+        'No recurring payments',
+        'Lifetime updates',
+        'VIP support',
+        'Beta feature access',
+        'Educational institution license',
+        'Commercial usage rights'
+      ]
     }
   ];
 
-  const [selectedOneTime, setSelectedOneTime] = useState(oneTimeOptions[1]);
-  const [selectedSubscription, setSelectedSubscription] = useState(subscriptionOptions[0]);
-
   /**
-   * Check subscription status on mount
+   * Initialize PayPal and check subscription status
    */
   useEffect(() => {
-    const checkSubscription = async () => {
-      try {
-        const isActive = await hasActiveSubscription();
-        setHasActiveSubscriptionState(isActive);
-      } catch (error) {
-        console.error('Failed to check subscription status:', error);
-      }
-    };
-
     if (isOpen) {
-      checkSubscription();
+      initializePayPalSDK();
+      checkCurrentSubscription();
     }
   }, [isOpen]);
 
   /**
-   * Initialize PayPal buttons when modal opens
+   * Initialize PayPal SDK
    */
-  useEffect(() => {
-    if (isOpen && !hasActiveSubscriptionState) {
-      initializePayPalButtons();
-    }
-  }, [isOpen, activeTab, selectedOneTime, selectedSubscription, hasActiveSubscriptionState]);
-
-  /**
-   * Initialize PayPal payment buttons
-   */
-  const initializePayPalButtons = async () => {
+  const initializePayPalSDK = async () => {
     try {
-      setIsLoading(true);
-      setError(null);
-
-      const userId = getCurrentUserId();
-
-      // Clear existing buttons
-      if (oneTimePaymentRef.current) {
-        oneTimePaymentRef.current.innerHTML = '';
-      }
-      if (subscriptionPaymentRef.current) {
-        subscriptionPaymentRef.current.innerHTML = '';
-      }
-
-      if (activeTab === 'one-time' && oneTimePaymentRef.current) {
-        // Create one-time payment button
-        await createPayPalPaymentButton('one-time-payment-container', {
-          amount: selectedOneTime.price,
-          currency: 'USD',
-          description: selectedOneTime.description,
-          user_id: userId,
-          reference_id: `${selectedOneTime.id}_${userId}_${Date.now()}`,
-          onSuccess: handlePaymentSuccess,
-          onError: handlePaymentError,
-          onCancel: handlePaymentCancel
-        });
-      } else if (activeTab === 'subscription' && subscriptionPaymentRef.current) {
-        // Create subscription plan first, then button
-        const planData = {
-          name: selectedSubscription.name,
-          description: selectedSubscription.description,
-          amount: selectedSubscription.price,
-          currency: 'USD',
-          interval_unit: selectedSubscription.interval === 'year' ? 'YEAR' : 'MONTH',
-          interval_count: 1
-        };
-
-        // For demo purposes, we'll use a pre-created plan ID
-        // In production, you'd create the plan via your backend
-        const planId = selectedSubscription.interval === 'year' 
-          ? 'P-YEARLY-PREMIUM-PLAN' 
-          : 'P-MONTHLY-PREMIUM-PLAN';
-
-        await createPayPalSubscriptionButton('subscription-payment-container', {
-          plan_id: planId,
-          currency: 'USD',
-          user_id: userId,
-          subscriber: {
-            first_name: 'EduSphere',
-            last_name: 'User',
-            email: 'user@edusphere.ai'
-          },
-          onSuccess: handleSubscriptionSuccess,
-          onError: handlePaymentError,
-          onCancel: handlePaymentCancel
-        });
-      }
+      await initializePayPal();
+      setPaypalLoaded(true);
     } catch (error) {
-      console.error('Failed to initialize PayPal buttons:', error);
-      setError('Failed to load payment options. Please try again.');
-    } finally {
-      setIsLoading(false);
+      console.error('Failed to initialize PayPal:', error);
+      setError('Failed to load payment system. Please try again.');
     }
   };
 
   /**
-   * Handle successful one-time payment
+   * Check current subscription status
    */
-  const handlePaymentSuccess = (result: any) => {
-    console.log('Payment successful:', result);
-    setSuccess('Payment completed successfully! You now have premium access.');
-    
-    // Show confetti
+  const checkCurrentSubscription = async () => {
+    try {
+      const hasSubscription = await hasActiveSubscription();
+      if (hasSubscription) {
+        // Fetch subscription details if needed
+        setCurrentSubscription({ active: true });
+      }
+    } catch (error) {
+      console.error('Failed to check subscription status:', error);
+    }
+  };
+
+  /**
+   * Handle subscription purchase
+   */
+  const handleSubscriptionPurchase = async (plan: PricingPlan) => {
+    if (!paypalLoaded) {
+      setError('Payment system not ready. Please try again.');
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+
+    try {
+      const userId = getCurrentUserId();
+      
+      if (plan.id === 'lifetime') {
+        // Handle one-time payment for lifetime access
+        const result = await createOneTimePayment({
+          amount: plan.price,
+          currency: 'USD',
+          description: `EduSphere AI - ${plan.name}`,
+          userId: userId,
+          planType: 'lifetime'
+        });
+
+        if (result.success) {
+          setSuccess('Lifetime access purchased successfully!');
+          showSuccessConfetti();
+          
+          setTimeout(() => {
+            onSuccess?.();
+            onClose();
+          }, 2000);
+        } else {
+          throw new Error(result.error || 'Payment failed');
+        }
+      } else {
+        // Handle subscription
+        const result = await createSubscription({
+          planId: plan.paypalPlanId || plan.id,
+          userId: userId,
+          planType: plan.id
+        });
+
+        if (result.success) {
+          setSuccess(`${plan.name} subscription activated successfully!`);
+          showSuccessConfetti();
+          
+          setTimeout(() => {
+            onSuccess?.();
+            onClose();
+          }, 2000);
+        } else {
+          throw new Error(result.error || 'Subscription creation failed');
+        }
+      }
+
+    } catch (error: any) {
+      console.error('Payment error:', error);
+      setError(error.message || 'Payment failed. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  /**
+   * Show success confetti animation
+   */
+  const showSuccessConfetti = () => {
     confetti({
       particleCount: 100,
       spread: 70,
       origin: { y: 0.6 }
     });
+  };
 
-    // Call success callback
-    if (onSuccess) {
-      onSuccess(result);
+  /**
+   * Get plan savings text
+   */
+  const getPlanSavings = (plan: PricingPlan) => {
+    if (plan.id === 'yearly') {
+      const monthlyCost = 9.99 * 12;
+      const savings = monthlyCost - plan.price;
+      return `Save $${savings.toFixed(2)} per year`;
     }
-
-    // Close modal after delay
-    setTimeout(() => {
-      onClose();
-    }, 3000);
-  };
-
-  /**
-   * Handle successful subscription
-   */
-  const handleSubscriptionSuccess = (result: any) => {
-    console.log('Subscription successful:', result);
-    setSuccess('Subscription activated successfully! Welcome to EduSphere AI Premium.');
-    setHasActiveSubscriptionState(true);
-    
-    // Show confetti
-    confetti({
-      particleCount: 150,
-      spread: 80,
-      origin: { y: 0.6 }
-    });
-
-    // Call success callback
-    if (onSuccess) {
-      onSuccess(result);
-    }
-
-    // Close modal after delay
-    setTimeout(() => {
-      onClose();
-    }, 3000);
-  };
-
-  /**
-   * Handle payment error
-   */
-  const handlePaymentError = (error: any) => {
-    console.error('Payment error:', error);
-    setError('Payment failed. Please try again or contact support.');
-  };
-
-  /**
-   * Handle payment cancellation
-   */
-  const handlePaymentCancel = (data: any) => {
-    console.log('Payment cancelled:', data);
-    setError('Payment was cancelled. You can try again anytime.');
+    return null;
   };
 
   if (!isOpen) return null;
@@ -274,269 +235,189 @@ const PaymentModal: React.FC<PaymentModalProps> = ({
         onClick={onClose}
       >
         <motion.div
-          className="bg-white dark:bg-gray-800 rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+          className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
           initial={{ scale: 0.9, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           exit={{ scale: 0.9, opacity: 0 }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200 dark:border-gray-700">
-            <div className="flex items-center">
-              <Crown className="text-yellow-500 mr-3" size={32} />
-              <div>
-                <h2 className="text-2xl font-bold text-gray-800 dark:text-white">
-                  {hasActiveSubscriptionState ? 'Premium Active' : 'Upgrade to Premium'}
-                </h2>
-                <p className="text-gray-600 dark:text-gray-300">
-                  {hasActiveSubscriptionState 
-                    ? 'You already have an active premium subscription'
-                    : 'Unlock all features with PayPal'
-                  }
-                </p>
-              </div>
-            </div>
+          <div className="relative p-6 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-t-2xl">
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
+              className="absolute top-4 right-4 p-2 hover:bg-white/20 rounded-lg transition-colors"
             >
               <X size={24} />
             </button>
+            
+            <div className="text-center">
+              <motion.div
+                className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-full mb-4"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.2 }}
+              >
+                <Crown size={32} />
+              </motion.div>
+              <h2 className="text-3xl font-bold mb-2">Upgrade to Premium</h2>
+              <p className="text-blue-100">Unlock the full potential of EduSphere AI</p>
+            </div>
           </div>
 
-          {/* Content */}
+          {/* Error/Success Messages */}
           <div className="p-6">
-            {hasActiveSubscriptionState ? (
-              /* Active Subscription View */
-              <div className="text-center py-8">
-                <CheckCircle className="mx-auto mb-4 text-green-500" size={64} />
-                <h3 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">
-                  Premium Active!
-                </h3>
-                <p className="text-gray-600 dark:text-gray-300 mb-6">
-                  You have full access to all EduSphere AI premium features.
-                </p>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl mx-auto">
-                  {['AR Problems', 'Live Code', 'Premium Stories', 'Voice Recognition'].map((feature, index) => (
-                    <div key={index} className="bg-green-50 dark:bg-green-900/20 p-3 rounded-lg">
-                      <Check className="mx-auto mb-2 text-green-500" size={20} />
-                      <p className="text-sm font-medium text-green-800 dark:text-green-200">
-                        {feature}
-                      </p>
-                    </div>
-                  ))}
+            <AnimatePresence>
+              {error && (
+                <motion.div
+                  className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <AlertCircle className="text-red-500 mr-3 flex-shrink-0" size={20} />
+                  <p className="text-red-700">{error}</p>
+                </motion.div>
+              )}
+
+              {success && (
+                <motion.div
+                  className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg flex items-center"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                >
+                  <CheckCircle className="text-green-500 mr-3 flex-shrink-0" size={20} />
+                  <p className="text-green-700">{success}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Current Subscription Status */}
+            {currentSubscription?.active && (
+              <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                <div className="flex items-center">
+                  <Crown className="text-blue-500 mr-3" size={20} />
+                  <div>
+                    <p className="font-semibold text-blue-800">You already have an active subscription!</p>
+                    <p className="text-blue-600 text-sm">Enjoy all premium features.</p>
+                  </div>
                 </div>
               </div>
-            ) : (
-              <>
-                {/* Error/Success Messages */}
-                {error && (
-                  <motion.div
-                    className="mb-6 p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg flex items-center"
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <AlertCircle className="text-red-500 mr-3 flex-shrink-0" size={20} />
-                    <p className="text-red-700 dark:text-red-300">{error}</p>
-                  </motion.div>
-                )}
-
-                {success && (
-                  <motion.div
-                    className="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg flex items-center"
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                  >
-                    <CheckCircle className="text-green-500 mr-3 flex-shrink-0" size={20} />
-                    <p className="text-green-700 dark:text-green-300">{success}</p>
-                  </motion.div>
-                )}
-
-                {/* Tab Navigation */}
-                <div className="flex space-x-1 bg-gray-100 dark:bg-gray-700 rounded-lg p-1 mb-6">
-                  <button
-                    onClick={() => setActiveTab('subscription')}
-                    className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
-                      activeTab === 'subscription'
-                        ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                        : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
-                    }`}
-                  >
-                    <Crown className="inline mr-2" size={16} />
-                    Subscription
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('one-time')}
-                    className={`flex-1 py-2 px-4 rounded-md font-medium transition-all ${
-                      activeTab === 'one-time'
-                        ? 'bg-white dark:bg-gray-600 text-blue-600 dark:text-blue-400 shadow-sm'
-                        : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400'
-                    }`}
-                  >
-                    <CreditCard className="inline mr-2" size={16} />
-                    One-time
-                  </button>
-                </div>
-
-                {/* Subscription Tab */}
-                {activeTab === 'subscription' && (
-                  <div className="space-y-6">
-                    <div className="text-center mb-6">
-                      <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
-                        Choose Your Subscription Plan
-                      </h3>
-                      <p className="text-gray-600 dark:text-gray-300">
-                        Continuous access to all premium features
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                      {subscriptionOptions.map((option) => (
-                        <motion.div
-                          key={option.id}
-                          className={`relative p-6 rounded-xl border-2 cursor-pointer transition-all ${
-                            selectedSubscription.id === option.id
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                              : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
-                          } ${option.popular ? 'ring-2 ring-blue-500' : ''}`}
-                          onClick={() => setSelectedSubscription(option)}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                        >
-                          {option.popular && (
-                            <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
-                              <span className="bg-blue-500 text-white px-3 py-1 rounded-full text-sm font-medium">
-                                Most Popular
-                              </span>
-                            </div>
-                          )}
-                          
-                          {option.savings && (
-                            <div className="absolute -top-3 right-4">
-                              <span className="bg-green-500 text-white px-2 py-1 rounded-full text-xs font-medium">
-                                {option.savings}
-                              </span>
-                            </div>
-                          )}
-
-                          <div className="text-center mb-4">
-                            <h4 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
-                              {option.name}
-                            </h4>
-                            <div className="text-3xl font-bold text-blue-600 dark:text-blue-400 mb-1">
-                              ${option.price}
-                            </div>
-                            <p className="text-gray-600 dark:text-gray-300 text-sm">
-                              {option.description}
-                            </p>
-                          </div>
-
-                          <ul className="space-y-2">
-                            {option.features.map((feature, index) => (
-                              <li key={index} className="flex items-center text-sm">
-                                <Check className="text-green-500 mr-2 flex-shrink-0" size={16} />
-                                <span className="text-gray-700 dark:text-gray-300">{feature}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </motion.div>
-                      ))}
-                    </div>
-
-                    {/* PayPal Subscription Button */}
-                    <div className="text-center">
-                      {isLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="animate-spin mr-2" size={24} />
-                          <span>Loading PayPal...</span>
-                        </div>
-                      ) : (
-                        <div id="subscription-payment-container" ref={subscriptionPaymentRef}></div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* One-time Tab */}
-                {activeTab === 'one-time' && (
-                  <div className="space-y-6">
-                    <div className="text-center mb-6">
-                      <h3 className="text-xl font-bold text-gray-800 dark:text-white mb-2">
-                        Choose Your Premium Duration
-                      </h3>
-                      <p className="text-gray-600 dark:text-gray-300">
-                        One-time payment for temporary access
-                      </p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                      {oneTimeOptions.map((option) => (
-                        <motion.div
-                          key={option.id}
-                          className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                            selectedOneTime.id === option.id
-                              ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
-                              : 'border-gray-200 dark:border-gray-600 hover:border-blue-300 dark:hover:border-blue-500'
-                          }`}
-                          onClick={() => setSelectedOneTime(option)}
-                          whileHover={{ scale: 1.02 }}
-                          whileTap={{ scale: 0.98 }}
-                        >
-                          <div className="text-center mb-3">
-                            <h4 className="text-lg font-bold text-gray-800 dark:text-white mb-1">
-                              {option.name}
-                            </h4>
-                            <div className="text-2xl font-bold text-blue-600 dark:text-blue-400 mb-1">
-                              ${option.price}
-                            </div>
-                            <p className="text-gray-600 dark:text-gray-300 text-sm">
-                              {option.description}
-                            </p>
-                          </div>
-
-                          <ul className="space-y-1">
-                            {option.features.map((feature, index) => (
-                              <li key={index} className="flex items-center text-xs">
-                                <Check className="text-green-500 mr-1 flex-shrink-0" size={12} />
-                                <span className="text-gray-700 dark:text-gray-300">{feature}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </motion.div>
-                      ))}
-                    </div>
-
-                    {/* PayPal One-time Button */}
-                    <div className="text-center">
-                      {isLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader2 className="animate-spin mr-2" size={24} />
-                          <span>Loading PayPal...</span>
-                        </div>
-                      ) : (
-                        <div id="one-time-payment-container" ref={oneTimePaymentRef}></div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Security Notice */}
-                <div className="mt-6 p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-                  <div className="flex items-start">
-                    <Shield className="text-blue-500 mr-3 flex-shrink-0 mt-0.5" size={20} />
-                    <div>
-                      <h4 className="font-semibold text-gray-800 dark:text-white mb-1">
-                        Secure Payment with PayPal
-                      </h4>
-                      <p className="text-sm text-gray-600 dark:text-gray-300">
-                        Your payment information is processed securely by PayPal. We never store your payment details.
-                        You can cancel your subscription anytime from your PayPal account.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </>
             )}
+
+            {/* Pricing Plans */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+              {plans.map((plan, index) => (
+                <motion.div
+                  key={plan.id}
+                  className={`relative p-6 rounded-xl border-2 transition-all cursor-pointer ${
+                    selectedPlan === plan.id
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-gray-200 hover:border-gray-300'
+                  } ${plan.popular ? 'ring-2 ring-purple-500' : ''}`}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.1 }}
+                  onClick={() => setSelectedPlan(plan.id)}
+                >
+                  {plan.popular && (
+                    <div className="absolute -top-3 left-1/2 transform -translate-x-1/2">
+                      <span className="bg-purple-500 text-white px-3 py-1 rounded-full text-sm font-medium">
+                        Most Popular
+                      </span>
+                    </div>
+                  )}
+
+                  <div className="text-center mb-4">
+                    <h3 className="text-xl font-bold text-gray-800 mb-2">{plan.name}</h3>
+                    <div className="mb-2">
+                      <span className="text-3xl font-bold text-gray-900">${plan.price}</span>
+                      {plan.period !== 'lifetime' && (
+                        <span className="text-gray-600">/{plan.period}</span>
+                      )}
+                    </div>
+                    {getPlanSavings(plan) && (
+                      <p className="text-green-600 text-sm font-medium">{getPlanSavings(plan)}</p>
+                    )}
+                  </div>
+
+                  <ul className="space-y-2 mb-6">
+                    {plan.features.map((feature, featureIndex) => (
+                      <li key={featureIndex} className="flex items-center text-sm">
+                        <Check className="text-green-500 mr-2 flex-shrink-0" size={16} />
+                        <span className="text-gray-700">{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <motion.button
+                    onClick={() => handleSubscriptionPurchase(plan)}
+                    disabled={isProcessing || !paypalLoaded}
+                    className={`w-full py-3 px-4 rounded-lg font-semibold transition-all disabled:opacity-50 disabled:cursor-not-allowed ${
+                      selectedPlan === plan.id
+                        ? 'bg-blue-600 text-white hover:bg-blue-700'
+                        : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                    }`}
+                    whileHover={{ scale: isProcessing ? 1 : 1.02 }}
+                    whileTap={{ scale: isProcessing ? 1 : 0.98 }}
+                  >
+                    {isProcessing && selectedPlan === plan.id ? (
+                      <div className="flex items-center justify-center">
+                        <Loader2 className="animate-spin mr-2" size={16} />
+                        Processing...
+                      </div>
+                    ) : (
+                      `Choose ${plan.name}`
+                    )}
+                  </motion.button>
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Features Highlight */}
+            <div className="bg-gray-50 rounded-xl p-6 mb-6">
+              <h3 className="text-lg font-bold text-gray-800 mb-4 text-center">
+                Why Choose Premium?
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-3">
+                    <Zap className="text-blue-600" size={24} />
+                  </div>
+                  <h4 className="font-semibold text-gray-800 mb-2">AI-Powered Learning</h4>
+                  <p className="text-gray-600 text-sm">
+                    Advanced AI generates personalized content and adapts to your learning style
+                  </p>
+                </div>
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 bg-purple-100 rounded-full mb-3">
+                    <Star className="text-purple-600" size={24} />
+                  </div>
+                  <h4 className="font-semibold text-gray-800 mb-2">Premium Features</h4>
+                  <p className="text-gray-600 text-sm">
+                    Access AR experiences, voice recognition, and collaborative tools
+                  </p>
+                </div>
+                <div className="text-center">
+                  <div className="inline-flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mb-3">
+                    <Shield className="text-green-600" size={24} />
+                  </div>
+                  <h4 className="font-semibold text-gray-800 mb-2">Secure & Reliable</h4>
+                  <p className="text-gray-600 text-sm">
+                    Enterprise-grade security with 99.9% uptime guarantee
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Payment Security */}
+            <div className="text-center text-gray-600 text-sm">
+              <div className="flex items-center justify-center mb-2">
+                <Shield className="mr-2" size={16} />
+                <span>Secure payment powered by PayPal</span>
+              </div>
+              <p>Your payment information is encrypted and secure. Cancel anytime.</p>
+            </div>
           </div>
         </motion.div>
       </motion.div>
