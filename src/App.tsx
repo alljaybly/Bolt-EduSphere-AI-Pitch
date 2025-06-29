@@ -12,30 +12,27 @@ import LiveCode from './components/LiveCode';
 import StoryMode from './components/StoryMode';
 import { useAppStore } from './store/useAppStore';
 
-// Initialize Sentry for error monitoring only if valid DSN is provided
-const sentryDsn = import.meta.env.VITE_SENTRY_DSN;
-if (sentryDsn && sentryDsn !== 'https://your-sentry-dsn@sentry.io/project-id' && sentryDsn.startsWith('https://')) {
-  Sentry.init({
-    dsn: sentryDsn,
-    environment: import.meta.env.MODE || 'development',
-    integrations: [
-      new Sentry.BrowserTracing({
-        routingInstrumentation: Sentry.reactRouterV6Instrumentation(
-          React.useEffect,
-          useLocation,
-        ),
-      }),
-    ],
-    tracesSampleRate: 0.1,
-    beforeSend(event) {
-      // Filter out non-critical errors in development
-      if (import.meta.env.MODE === 'development') {
-        return event.level === 'error' ? event : null;
-      }
-      return event;
-    },
-  });
-}
+// Initialize Sentry for error monitoring
+Sentry.init({
+  dsn: import.meta.env.VITE_SENTRY_DSN || 'https://df5806fa12da19ec70b9390fe8ce70f6@o4508991941378048.ingest.de.sentry.io/4509513811951696',
+  environment: import.meta.env.MODE || 'development',
+  integrations: [
+    new Sentry.BrowserTracing({
+      routingInstrumentation: Sentry.reactRouterV6Instrumentation(
+        React.useEffect,
+        useLocation,
+      ),
+    }),
+  ],
+  tracesSampleRate: 0.1,
+  beforeSend(event) {
+    // Filter out non-critical errors in development
+    if (import.meta.env.MODE === 'development') {
+      return event.level === 'error' ? event : null;
+    }
+    return event;
+  },
+});
 
 function App() {
   const showBookCover = useAppStore((state) => state.showBookCover);
@@ -43,27 +40,21 @@ function App() {
 
   // Initialize error boundary and performance monitoring
   useEffect(() => {
-    // Only set Sentry user context if Sentry is initialized
-    if (sentryDsn && sentryDsn !== 'https://your-sentry-dsn@sentry.io/project-id' && sentryDsn.startsWith('https://')) {
-      Sentry.setUser({
-        id: localStorage.getItem('edusphere_user_id') || 'anonymous',
-        username: '',
-      });
-    }
+    // Set user context for Sentry
+    Sentry.setUser({
+      id: localStorage.getItem('edusphere_user_id') || 'anonymous',
+      username: '',
+    });
 
     // Add global error handler
     const handleUnhandledRejection = (event: PromiseRejectionEvent) => {
       console.error('Unhandled promise rejection:', event.reason);
-      if (sentryDsn && sentryDsn !== 'https://your-sentry-dsn@sentry.io/project-id' && sentryDsn.startsWith('https://')) {
-        Sentry.captureException(event.reason);
-      }
+      Sentry.captureException(event.reason);
     };
 
     const handleError = (event: ErrorEvent) => {
       console.error('Global error:', event.error);
-      if (sentryDsn && sentryDsn !== 'https://your-sentry-dsn@sentry.io/project-id' && sentryDsn.startsWith('https://')) {
-        Sentry.captureException(event.error);
-      }
+      Sentry.captureException(event.error);
     };
 
     window.addEventListener('unhandledrejection', handleUnhandledRejection);
@@ -75,13 +66,9 @@ function App() {
     };
   }, []);
 
-  const ErrorBoundaryComponent = sentryDsn && sentryDsn !== 'https://your-sentry-dsn@sentry.io/project-id' && sentryDsn.startsWith('https://') 
-    ? Sentry.ErrorBoundary 
-    : ({ children, fallback }: { children: React.ReactNode; fallback?: React.ComponentType<any> }) => <>{children}</>;
-
   return (
-    <ErrorBoundaryComponent 
-      fallback={({ error, resetError }: { error: Error; resetError: () => void }) => (
+    <Sentry.ErrorBoundary 
+      fallback={({ error, resetError }) => (
         <div className="min-h-screen bg-gradient-to-br from-red-50 to-red-100 flex items-center justify-center p-6">
           <div className="bg-white rounded-xl shadow-lg p-8 max-w-md w-full text-center">
             <div className="text-red-500 mb-4">
@@ -266,10 +253,8 @@ function App() {
           )}
         </AnimatePresence>
       </div>
-    </ErrorBoundaryComponent>
+    </Sentry.ErrorBoundary>
   );
 }
 
-export default sentryDsn && sentryDsn !== 'https://your-sentry-dsn@sentry.io/project-id' && sentryDsn.startsWith('https://') 
-  ? Sentry.withSentryRouting(App) 
-  : App;
+export default Sentry.withSentryRouting(App);
