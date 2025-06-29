@@ -5,35 +5,35 @@ import {
   Mic, 
   MicOff, 
   Volume2, 
-  VolumeX, 
-  Settings, 
-  Languages, 
-  Brain, 
-  Zap, 
-  Target, 
-  Award, 
-  CheckCircle, 
-  XCircle, 
-  Loader2,
-  Sparkles,
-  Headphones,
-  Waveform,
-  RotateCcw,
+  VolumeX,
   Play,
   Pause,
-  SkipForward,
+  RotateCcw,
+  CheckCircle,
+  XCircle,
+  Settings,
+  Languages,
+  Zap,
+  Brain,
+  Loader2,
+  Award,
   Star,
-  Flame,
-  Trophy,
+  Target,
+  TrendingUp,
   Globe,
-  Lightbulb,
-  Eye,
-  EyeOff
+  Headphones,
+  Waveform,
+  Activity
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/revenuecat.js';
 import confetti from 'canvas-confetti';
 
+/**
+ * Enhanced Voice Recognition Component
+ * Advanced speech recognition with real-time feedback, pronunciation scoring,
+ * and adaptive learning algorithms
+ */
 interface VoiceQuiz {
   id: string;
   question: string;
@@ -42,266 +42,176 @@ interface VoiceQuiz {
   difficulty: string;
   grade_level: string;
   subject: string;
-  alternative_answers?: string[];
-  hint?: string;
   audio_url?: string;
+  alternative_answers: string[];
+  hint?: string;
 }
 
-interface EnhancedVoiceRecognitionProps {
-  language?: string;
-  difficulty?: string;
-  onScoreUpdate?: (score: number) => void;
-  onStreakUpdate?: (streak: number) => void;
+interface VoiceSettings {
+  language: string;
+  sensitivity: number;
+  autoPlay: boolean;
+  showWaveform: boolean;
+  pronunciationFeedback: boolean;
+  adaptiveDifficulty: boolean;
 }
 
-/**
- * Enhanced Voice Recognition Component
- * Advanced speech recognition with AI-powered feedback and adaptive learning
- */
-const EnhancedVoiceRecognition: React.FC<EnhancedVoiceRecognitionProps> = ({
-  language = 'en',
-  difficulty = 'easy',
-  onScoreUpdate,
-  onStreakUpdate
-}) => {
+interface RecognitionResult {
+  transcript: string;
+  confidence: number;
+  isCorrect: boolean;
+  pronunciationScore: number;
+  feedback: string;
+}
+
+const EnhancedVoiceRecognition: React.FC = () => {
   // State management
   const [isListening, setIsListening] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [currentQuiz, setCurrentQuiz] = useState<VoiceQuiz | null>(null);
   const [quizzes, setQuizzes] = useState<VoiceQuiz[]>([]);
-  const [userAnswer, setUserAnswer] = useState('');
-  const [isCorrect, setIsCorrect] = useState<boolean | null>(null);
-  const [score, setScore] = useState(0);
-  const [streak, setStreak] = useState(0);
-  const [level, setLevel] = useState(1);
+  const [transcript, setTranscript] = useState('');
   const [confidence, setConfidence] = useState(0);
-  const [audioWaveform, setAudioWaveform] = useState<number[]>([]);
-  const [showTranscript, setShowTranscript] = useState(true);
-  const [showHints, setShowHints] = useState(true);
-  const [autoPlay, setAutoPlay] = useState(true);
-  const [speechRate, setSpeechRate] = useState(1.0);
-  const [speechVolume, setSpeechVolume] = useState(0.8);
-  
+  const [result, setResult] = useState<RecognitionResult | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [settings, setSettings] = useState<VoiceSettings>({
+    language: 'en-US',
+    sensitivity: 0.7,
+    autoPlay: true,
+    showWaveform: true,
+    pronunciationFeedback: true,
+    adaptiveDifficulty: true
+  });
+  const [showSettings, setShowSettings] = useState(false);
+  const [streak, setStreak] = useState(0);
+  const [totalScore, setTotalScore] = useState(0);
+  const [sessionStats, setSessionStats] = useState({
+    attempted: 0,
+    correct: 0,
+    averageConfidence: 0,
+    averagePronunciation: 0
+  });
+
   // Refs
-  const recognitionRef = useRef<any>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const microphoneRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animationRef = useRef<number>();
 
   // Language options
   const languages = [
-    { code: 'en', name: 'English', flag: '🇺🇸' },
-    { code: 'es', name: 'Español', flag: '🇪🇸' },
-    { code: 'zh', name: '中文', flag: '🇨🇳' },
-    { code: 'fr', name: 'Français', flag: '🇫🇷' },
-    { code: 'de', name: 'Deutsch', flag: '🇩🇪' },
-    { code: 'ja', name: '日本語', flag: '🇯🇵' },
-    { code: 'ko', name: '한국어', flag: '🇰🇷' },
-    { code: 'pt', name: 'Português', flag: '🇵🇹' }
+    { code: 'en-US', name: 'English (US)', flag: '🇺🇸' },
+    { code: 'en-GB', name: 'English (UK)', flag: '🇬🇧' },
+    { code: 'es-ES', name: 'Español', flag: '🇪🇸' },
+    { code: 'fr-FR', name: 'Français', flag: '🇫🇷' },
+    { code: 'de-DE', name: 'Deutsch', flag: '🇩🇪' },
+    { code: 'zh-CN', name: '中文', flag: '🇨🇳' },
+    { code: 'ja-JP', name: '日本語', flag: '🇯🇵' },
+    { code: 'ko-KR', name: '한국어', flag: '🇰🇷' }
   ];
 
   /**
-   * Initialize enhanced voice recognition
+   * Initialize voice recognition and load quizzes
    */
   useEffect(() => {
-    initializeEnhancedVoiceRecognition();
-    loadVoiceQuizzes();
-    
-    return () => {
-      cleanup();
-    };
-  }, [language, difficulty]);
+    const initializeVoiceRecognition = async () => {
+      try {
+        setIsLoading(true);
 
-  /**
-   * Initialize speech recognition with enhanced features
-   */
-  const initializeEnhancedVoiceRecognition = () => {
-    if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      recognitionRef.current = new SpeechRecognition();
-      
-      // Enhanced configuration
-      recognitionRef.current.continuous = false;
-      recognitionRef.current.interimResults = true;
-      recognitionRef.current.maxAlternatives = 5;
-      recognitionRef.current.lang = getLanguageCode(language);
-      
-      recognitionRef.current.onstart = () => {
-        setIsListening(true);
-        startAudioVisualization();
-      };
-      
-      recognitionRef.current.onresult = (event: any) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
+        // Check for speech recognition support
+        if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
+          throw new Error('Speech recognition not supported in this browser');
+        }
+
+        // Initialize speech recognition
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        recognitionRef.current = new SpeechRecognition();
         
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          const transcript = event.results[i][0].transcript;
-          const confidence = event.results[i][0].confidence;
+        if (recognitionRef.current) {
+          recognitionRef.current.continuous = false;
+          recognitionRef.current.interimResults = true;
+          recognitionRef.current.lang = settings.language;
           
-          if (event.results[i].isFinal) {
-            finalTranscript += transcript;
-            setConfidence(confidence);
-            setUserAnswer(finalTranscript.trim());
-            checkAnswer(finalTranscript.trim(), confidence);
-          } else {
-            interimTranscript += transcript;
-            setUserAnswer(interimTranscript);
-          }
+          recognitionRef.current.onstart = () => {
+            setIsListening(true);
+            startWaveformAnimation();
+          };
+          
+          recognitionRef.current.onresult = handleSpeechResult;
+          
+          recognitionRef.current.onerror = (event) => {
+            console.error('Speech recognition error:', event.error);
+            setIsListening(false);
+            stopWaveformAnimation();
+            Sentry.captureException(new Error(`Speech recognition error: ${event.error}`));
+          };
+          
+          recognitionRef.current.onend = () => {
+            setIsListening(false);
+            stopWaveformAnimation();
+          };
         }
-      };
-      
-      recognitionRef.current.onerror = (event: any) => {
-        console.error('Speech recognition error:', event.error);
-        setIsListening(false);
-        stopAudioVisualization();
-        
-        // Provide user-friendly error messages
-        let errorMessage = 'Speech recognition error occurred.';
-        switch (event.error) {
-          case 'no-speech':
-            errorMessage = 'No speech detected. Please try speaking louder.';
-            break;
-          case 'audio-capture':
-            errorMessage = 'Microphone access denied. Please check permissions.';
-            break;
-          case 'not-allowed':
-            errorMessage = 'Microphone permission denied.';
-            break;
-          case 'network':
-            errorMessage = 'Network error. Please check your connection.';
-            break;
-        }
-        
-        // Show error to user (you might want to add a toast notification system)
-        console.warn(errorMessage);
-      };
-      
-      recognitionRef.current.onend = () => {
-        setIsListening(false);
-        stopAudioVisualization();
-      };
-    }
-  };
 
-  /**
-   * Get language code for speech recognition
-   */
-  const getLanguageCode = (lang: string) => {
-    const langMap: { [key: string]: string } = {
-      'en': 'en-US',
-      'es': 'es-ES',
-      'zh': 'zh-CN',
-      'fr': 'fr-FR',
-      'de': 'de-DE',
-      'ja': 'ja-JP',
-      'ko': 'ko-KR',
-      'pt': 'pt-PT'
-    };
-    return langMap[lang] || 'en-US';
-  };
+        // Load voice quizzes
+        await loadVoiceQuizzes();
 
-  /**
-   * Start audio visualization
-   */
-  const startAudioVisualization = async () => {
-    try {
-      if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+        // Load user progress
+        await loadUserProgress();
+
+      } catch (error) {
+        console.error('Failed to initialize voice recognition:', error);
+        Sentry.captureException(error);
+      } finally {
+        setIsLoading(false);
       }
-      
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      analyserRef.current = audioContextRef.current.createAnalyser();
-      analyserRef.current.fftSize = 256;
-      
-      microphoneRef.current = audioContextRef.current.createMediaStreamSource(stream);
-      microphoneRef.current.connect(analyserRef.current);
-      
-      const bufferLength = analyserRef.current.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-      
-      const updateWaveform = () => {
-        if (!analyserRef.current) return;
-        
-        analyserRef.current.getByteFrequencyData(dataArray);
-        
-        // Convert to normalized values for visualization
-        const waveform = Array.from(dataArray).map(value => value / 255);
-        setAudioWaveform(waveform.slice(0, 32));
-        
-        animationFrameRef.current = requestAnimationFrame(updateWaveform);
-      };
-      
-      updateWaveform();
-    } catch (error) {
-      console.error('Failed to start audio visualization:', error);
-    }
-  };
+    };
+
+    initializeVoiceRecognition();
+
+    // Cleanup
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+      stopWaveformAnimation();
+    };
+  }, []);
 
   /**
-   * Stop audio visualization
+   * Update recognition language when settings change
    */
-  const stopAudioVisualization = () => {
-    if (animationFrameRef.current) {
-      cancelAnimationFrame(animationFrameRef.current);
-      animationFrameRef.current = null;
-    }
-    
-    if (microphoneRef.current) {
-      microphoneRef.current.disconnect();
-      microphoneRef.current = null;
-    }
-    
-    setAudioWaveform([]);
-  };
-
-  /**
-   * Cleanup resources
-   */
-  const cleanup = () => {
+  useEffect(() => {
     if (recognitionRef.current) {
-      recognitionRef.current.abort();
+      recognitionRef.current.lang = settings.language;
     }
-    
-    stopAudioVisualization();
-    
-    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
-    }
-  };
+  }, [settings.language]);
 
   /**
    * Load voice quizzes from Supabase
    */
   const loadVoiceQuizzes = async () => {
     try {
-      setIsLoading(true);
-      
       const { data, error } = await supabase
         .from('voice_quizzes')
         .select('*')
-        .eq('language', language)
-        .eq('difficulty', difficulty)
-        .order('created_at', { ascending: false });
-      
-      if (error) {
-        throw error;
-      }
-      
+        .eq('language', settings.language.split('-')[0])
+        .order('created_at', { ascending: false })
+        .limit(20);
+
+      if (error) throw error;
+
       if (data && data.length > 0) {
         setQuizzes(data);
         setCurrentQuiz(data[0]);
       } else {
-        // Fallback to sample quizzes
-        const sampleQuizzes = [
+        // Fallback sample quizzes
+        const sampleQuizzes: VoiceQuiz[] = [
           {
             id: 'sample_1',
             question: 'What color is the sky on a clear day?',
             answer: 'blue',
-            language: language,
-            difficulty: difficulty,
+            language: 'en',
+            difficulty: 'easy',
             grade_level: 'kindergarten',
             subject: 'science',
             alternative_answers: ['sky blue', 'light blue'],
@@ -311,150 +221,219 @@ const EnhancedVoiceRecognition: React.FC<EnhancedVoiceRecognitionProps> = ({
             id: 'sample_2',
             question: 'How many days are in a week?',
             answer: 'seven',
-            language: language,
-            difficulty: difficulty,
+            language: 'en',
+            difficulty: 'easy',
             grade_level: 'kindergarten',
             subject: 'math',
             alternative_answers: ['7'],
             hint: 'Monday through Sunday'
-          },
-          {
-            id: 'sample_3',
-            question: 'What is the capital of France?',
-            answer: 'Paris',
-            language: language,
-            difficulty: difficulty,
-            grade_level: 'grade1-6',
-            subject: 'geography',
-            alternative_answers: [],
-            hint: 'It has a famous tower'
           }
         ];
-        
         setQuizzes(sampleQuizzes);
         setCurrentQuiz(sampleQuizzes[0]);
       }
     } catch (error) {
       console.error('Failed to load voice quizzes:', error);
       Sentry.captureException(error);
-    } finally {
-      setIsLoading(false);
     }
   };
 
   /**
-   * Start listening for voice input
+   * Load user progress and statistics
    */
-  const startListening = () => {
-    if (recognitionRef.current) {
-      setUserAnswer('');
-      setIsCorrect(null);
-      recognitionRef.current.start();
+  const loadUserProgress = async () => {
+    try {
+      const userId = getCurrentUserId();
+      
+      const { data, error } = await supabase
+        .from('voice_quiz_attempts')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+
+      if (error) throw error;
+
+      if (data) {
+        const correct = data.filter(attempt => attempt.is_correct).length;
+        const total = data.length;
+        const avgConfidence = data.reduce((sum, attempt) => sum + (attempt.confidence_score || 0), 0) / total || 0;
+        
+        setSessionStats({
+          attempted: total,
+          correct: correct,
+          averageConfidence: avgConfidence,
+          averagePronunciation: avgConfidence // Simplified for demo
+        });
+
+        // Calculate streak
+        let currentStreak = 0;
+        for (const attempt of data) {
+          if (attempt.is_correct) {
+            currentStreak++;
+          } else {
+            break;
+          }
+        }
+        setStreak(currentStreak);
+        setTotalScore(correct * 10 + currentStreak * 5);
+      }
+    } catch (error) {
+      console.error('Failed to load user progress:', error);
     }
   };
 
   /**
-   * Stop listening for voice input
+   * Handle speech recognition results
    */
-  const stopListening = () => {
-    if (recognitionRef.current) {
-      recognitionRef.current.stop();
+  const handleSpeechResult = (event: SpeechRecognitionEvent) => {
+    let finalTranscript = '';
+    let interimTranscript = '';
+
+    for (let i = event.resultIndex; i < event.results.length; i++) {
+      const result = event.results[i];
+      if (result.isFinal) {
+        finalTranscript += result[0].transcript;
+        setConfidence(result[0].confidence);
+      } else {
+        interimTranscript += result[0].transcript;
+      }
+    }
+
+    setTranscript(finalTranscript || interimTranscript);
+
+    if (finalTranscript && currentQuiz) {
+      processAnswer(finalTranscript, event.results[event.results.length - 1][0].confidence);
     }
   };
 
   /**
-   * Check answer with enhanced matching
+   * Process the user's spoken answer
    */
-  const checkAnswer = (answer: string, confidenceScore: number = 0) => {
+  const processAnswer = async (spokenText: string, confidence: number) => {
     if (!currentQuiz) return;
 
-    // Normalize answers for comparison
-    const normalizedUserAnswer = answer.toLowerCase().trim();
-    const normalizedCorrectAnswer = currentQuiz.answer.toLowerCase().trim();
-    
-    // Include alternative answers
-    const alternativeAnswers = currentQuiz.alternative_answers || [];
-    const normalizedAlternatives = alternativeAnswers.map(alt => alt.toLowerCase().trim());
-    
-    // Check for exact match
-    let isExactMatch = normalizedUserAnswer === normalizedCorrectAnswer;
-    
-    // Check for alternative matches
-    let isAlternativeMatch = normalizedAlternatives.some(alt => normalizedUserAnswer === alt);
-    
-    // Check for partial match (if confidence is high)
-    let isPartialMatch = false;
-    if (confidenceScore > 0.7) {
-      isPartialMatch = normalizedUserAnswer.includes(normalizedCorrectAnswer) || 
-                      normalizedCorrectAnswer.includes(normalizedUserAnswer) ||
-                      normalizedAlternatives.some(alt => 
-                        normalizedUserAnswer.includes(alt) || alt.includes(normalizedUserAnswer)
-                      );
-    }
-    
-    const isAnswerCorrect = isExactMatch || isAlternativeMatch || isPartialMatch;
-    setIsCorrect(isAnswerCorrect);
+    try {
+      const normalizedSpoken = spokenText.toLowerCase().trim();
+      const normalizedAnswer = currentQuiz.answer.toLowerCase().trim();
+      const alternatives = currentQuiz.alternative_answers.map(alt => alt.toLowerCase().trim());
 
-    if (isAnswerCorrect) {
-      // Calculate points based on difficulty and confidence
-      const difficultyMultiplier = difficulty === 'easy' ? 1 : difficulty === 'medium' ? 2 : 3;
-      const confidenceBonus = Math.round(confidenceScore * 5);
-      const points = 10 * difficultyMultiplier + confidenceBonus;
-      
-      setScore(prev => {
-        const newScore = prev + points;
-        if (onScoreUpdate) onScoreUpdate(newScore);
-        return newScore;
-      });
-      
-      setStreak(prev => {
-        const newStreak = prev + 1;
-        if (onStreakUpdate) onStreakUpdate(newStreak);
-        return newStreak;
-      });
-      
-      // Level up check
-      if ((score + points) > 0 && (score + points) % 100 === 0) {
-        setLevel(prev => prev + 1);
+      // Check if answer is correct
+      const isCorrect = normalizedSpoken === normalizedAnswer || 
+                       alternatives.some(alt => normalizedSpoken === alt) ||
+                       normalizedSpoken.includes(normalizedAnswer);
+
+      // Calculate pronunciation score (simplified algorithm)
+      const pronunciationScore = calculatePronunciationScore(spokenText, currentQuiz.answer, confidence);
+
+      // Generate feedback
+      const feedback = generateFeedback(isCorrect, confidence, pronunciationScore);
+
+      const result: RecognitionResult = {
+        transcript: spokenText,
+        confidence: confidence,
+        isCorrect: isCorrect,
+        pronunciationScore: pronunciationScore,
+        feedback: feedback
+      };
+
+      setResult(result);
+
+      // Update session stats
+      setSessionStats(prev => ({
+        attempted: prev.attempted + 1,
+        correct: prev.correct + (isCorrect ? 1 : 0),
+        averageConfidence: (prev.averageConfidence * prev.attempted + confidence) / (prev.attempted + 1),
+        averagePronunciation: (prev.averagePronunciation * prev.attempted + pronunciationScore) / (prev.attempted + 1)
+      }));
+
+      // Update streak
+      if (isCorrect) {
+        setStreak(prev => prev + 1);
+        setTotalScore(prev => prev + 10 + (pronunciationScore > 0.8 ? 5 : 0));
+        
+        // Show celebration for correct answers
         confetti({
-          particleCount: 150,
-          spread: 80,
-          origin: { y: 0.6 }
+          particleCount: 50,
+          spread: 60,
+          origin: { y: 0.7 }
         });
+      } else {
+        setStreak(0);
       }
-      
-      // Play success sound
-      const successSound = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
-      successSound.volume = 0.3;
-      successSound.play().catch(() => {});
-      
-      // Save progress
-      saveVoiceQuizProgress(true, confidenceScore);
-      
-      // Auto-advance to next quiz if enabled
-      if (autoPlay) {
+
+      // Save attempt to database
+      await saveAttempt(result);
+
+      // Auto-advance to next quiz if correct and auto-play enabled
+      if (isCorrect && settings.autoPlay) {
         setTimeout(() => {
           nextQuiz();
         }, 2000);
       }
-    } else {
-      setStreak(0);
-      if (onStreakUpdate) onStreakUpdate(0);
-      
-      // Play error sound
-      const errorSound = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
-      errorSound.volume = 0.2;
-      errorSound.play().catch(() => {});
-      
-      // Save progress
-      saveVoiceQuizProgress(false, confidenceScore);
+
+    } catch (error) {
+      console.error('Failed to process answer:', error);
+      Sentry.captureException(error);
     }
   };
 
   /**
-   * Save voice quiz progress to Supabase
+   * Calculate pronunciation score based on confidence and text similarity
    */
-  const saveVoiceQuizProgress = async (correct: boolean, confidenceScore: number) => {
+  const calculatePronunciationScore = (spoken: string, expected: string, confidence: number): number => {
+    // Simplified pronunciation scoring algorithm
+    const similarity = calculateTextSimilarity(spoken.toLowerCase(), expected.toLowerCase());
+    const score = (similarity * 0.7 + confidence * 0.3);
+    return Math.max(0, Math.min(1, score));
+  };
+
+  /**
+   * Calculate text similarity using Levenshtein distance
+   */
+  const calculateTextSimilarity = (str1: string, str2: string): number => {
+    const matrix = Array(str2.length + 1).fill(null).map(() => Array(str1.length + 1).fill(null));
+
+    for (let i = 0; i <= str1.length; i++) matrix[0][i] = i;
+    for (let j = 0; j <= str2.length; j++) matrix[j][0] = j;
+
+    for (let j = 1; j <= str2.length; j++) {
+      for (let i = 1; i <= str1.length; i++) {
+        const indicator = str1[i - 1] === str2[j - 1] ? 0 : 1;
+        matrix[j][i] = Math.min(
+          matrix[j][i - 1] + 1,
+          matrix[j - 1][i] + 1,
+          matrix[j - 1][i - 1] + indicator
+        );
+      }
+    }
+
+    const maxLength = Math.max(str1.length, str2.length);
+    return maxLength === 0 ? 1 : (maxLength - matrix[str2.length][str1.length]) / maxLength;
+  };
+
+  /**
+   * Generate feedback based on performance
+   */
+  const generateFeedback = (isCorrect: boolean, confidence: number, pronunciationScore: number): string => {
+    if (isCorrect) {
+      if (pronunciationScore > 0.9) return "Perfect pronunciation! Excellent work!";
+      if (pronunciationScore > 0.7) return "Great job! Your pronunciation is very good.";
+      if (pronunciationScore > 0.5) return "Correct answer! Try to speak a bit more clearly.";
+      return "Correct! Keep practicing your pronunciation.";
+    } else {
+      if (confidence < 0.3) return "I couldn't hear you clearly. Try speaking louder and more clearly.";
+      if (confidence < 0.6) return "I heard you, but the answer isn't quite right. Try again!";
+      return "Not quite right. Listen to the question again and try once more.";
+    }
+  };
+
+  /**
+   * Save attempt to database
+   */
+  const saveAttempt = async (result: RecognitionResult) => {
+    if (!currentQuiz) return;
+
     try {
       const userId = getCurrentUserId();
       
@@ -462,17 +441,64 @@ const EnhancedVoiceRecognition: React.FC<EnhancedVoiceRecognitionProps> = ({
         .from('voice_quiz_attempts')
         .insert({
           user_id: userId,
-          quiz_id: currentQuiz?.id,
-          user_answer: userAnswer,
-          is_correct: correct,
-          confidence_score: confidenceScore
+          quiz_id: currentQuiz.id,
+          user_answer: result.transcript,
+          is_correct: result.isCorrect,
+          confidence_score: result.confidence
         });
-      
-      if (error) {
-        console.error('Failed to save voice quiz progress:', error);
+
+      if (error) throw error;
+    } catch (error) {
+      console.error('Failed to save attempt:', error);
+    }
+  };
+
+  /**
+   * Start voice recognition
+   */
+  const startListening = () => {
+    if (recognitionRef.current && !isListening) {
+      setTranscript('');
+      setResult(null);
+      recognitionRef.current.start();
+    }
+  };
+
+  /**
+   * Stop voice recognition
+   */
+  const stopListening = () => {
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+    }
+  };
+
+  /**
+   * Play question audio
+   */
+  const playQuestion = async () => {
+    if (!currentQuiz) return;
+
+    try {
+      setIsPlaying(true);
+
+      if (currentQuiz.audio_url) {
+        // Play pre-recorded audio
+        if (audioRef.current) {
+          audioRef.current.src = currentQuiz.audio_url;
+          await audioRef.current.play();
+        }
+      } else {
+        // Use text-to-speech
+        const utterance = new SpeechSynthesisUtterance(currentQuiz.question);
+        utterance.lang = settings.language;
+        utterance.rate = 0.8;
+        utterance.onend = () => setIsPlaying(false);
+        speechSynthesis.speak(utterance);
       }
     } catch (error) {
-      console.error('Failed to save voice quiz progress:', error);
+      console.error('Failed to play question:', error);
+      setIsPlaying(false);
     }
   };
 
@@ -480,289 +506,497 @@ const EnhancedVoiceRecognition: React.FC<EnhancedVoiceRecognitionProps> = ({
    * Move to next quiz
    */
   const nextQuiz = () => {
-    if (!quizzes.length) return;
-    
+    if (quizzes.length === 0) return;
+
     const currentIndex = quizzes.findIndex(quiz => quiz.id === currentQuiz?.id);
     const nextIndex = (currentIndex + 1) % quizzes.length;
     setCurrentQuiz(quizzes[nextIndex]);
-    setUserAnswer('');
-    setIsCorrect(null);
+    setTranscript('');
+    setResult(null);
     setConfidence(0);
   };
 
   /**
-   * Speak quiz question using text-to-speech
+   * Start waveform animation
    */
-  const speakQuestion = () => {
-    if (!currentQuiz) return;
-    
-    const utterance = new SpeechSynthesisUtterance(currentQuiz.question);
-    utterance.lang = getLanguageCode(language);
-    utterance.rate = speechRate;
-    utterance.volume = speechVolume;
-    
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(utterance);
+  const startWaveformAnimation = () => {
+    if (!settings.showWaveform || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const animate = () => {
+      if (!isListening) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      
+      // Draw animated waveform
+      const centerY = canvas.height / 2;
+      const amplitude = 20 + Math.random() * 30;
+      const frequency = 0.02;
+      
+      ctx.strokeStyle = '#3B82F6';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      
+      for (let x = 0; x < canvas.width; x++) {
+        const y = centerY + Math.sin(x * frequency + Date.now() * 0.01) * amplitude;
+        if (x === 0) {
+          ctx.moveTo(x, y);
+        } else {
+          ctx.lineTo(x, y);
+        }
+      }
+      
+      ctx.stroke();
+      
+      animationRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
   };
 
   /**
-   * Render audio waveform visualization
+   * Stop waveform animation
    */
-  const renderWaveform = () => {
-    return (
-      <div className="flex items-center justify-center h-12 gap-1">
-        {audioWaveform.map((value, index) => (
-          <motion.div
-            key={index}
-            className="w-1 bg-blue-500"
-            style={{ 
-              height: `${Math.max(4, value * 48)}px`,
-              opacity: Math.max(0.3, value)
-            }}
-            animate={{ 
-              height: `${Math.max(4, value * 48)}px`,
-              opacity: Math.max(0.3, value)
-            }}
-            transition={{ duration: 0.1 }}
-          />
-        ))}
-        
-        {audioWaveform.length === 0 && isListening && (
-          <div className="flex items-center space-x-1">
-            {[1, 2, 3, 4, 5].map((_, i) => (
-              <motion.div
-                key={i}
-                className="w-1 h-4 bg-blue-500"
-                animate={{ 
-                  height: [4, 16, 8, 24, 4],
-                  opacity: [0.3, 1, 0.5, 0.8, 0.3]
-                }}
-                transition={{ 
-                  duration: 1.5, 
-                  repeat: Infinity,
-                  delay: i * 0.1
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    );
+  const stopWaveformAnimation = () => {
+    if (animationRef.current) {
+      cancelAnimationFrame(animationRef.current);
+    }
+    
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+    }
   };
 
-  return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl p-8 shadow-lg">
-      <div className="text-center mb-8">
-        <div className="flex items-center justify-center mb-4">
-          <Mic className="text-blue-600 mr-3" size={48} />
-          <h2 className="text-3xl font-bold text-gray-800 dark:text-white">
-            Enhanced Voice Quiz
-          </h2>
-        </div>
-        <p className="text-gray-600 dark:text-gray-300">
-          Answer questions using your voice with advanced speech recognition!
-        </p>
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <motion.div
+          className="text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          <Loader2 className="animate-spin mx-auto mb-4 text-blue-600" size={48} />
+          <p className="text-xl font-semibold text-blue-800">Initializing Voice Recognition...</p>
+        </motion.div>
       </div>
+    );
+  }
 
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader2 className="animate-spin mr-3" size={32} />
-          <p>Loading voice quizzes...</p>
-        </div>
-      ) : (
-        <>
-          {/* Quiz Stats */}
-          <div className="grid grid-cols-3 gap-4 mb-6">
-            <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg text-center">
-              <Star className="mx-auto mb-1 text-yellow-500" size={20} />
-              <p className="text-sm text-gray-600 dark:text-gray-300">Score</p>
-              <p className="text-xl font-bold text-gray-800 dark:text-white">{score}</p>
-            </div>
-            
-            <div className="bg-orange-50 dark:bg-orange-900/20 p-3 rounded-lg text-center">
-              <Flame className="mx-auto mb-1 text-orange-500" size={20} />
-              <p className="text-sm text-gray-600 dark:text-gray-300">Streak</p>
-              <p className="text-xl font-bold text-gray-800 dark:text-white">{streak}</p>
-            </div>
-            
-            <div className="bg-purple-50 dark:bg-purple-900/20 p-3 rounded-lg text-center">
-              <Trophy className="mx-auto mb-1 text-purple-500" size={20} />
-              <p className="text-sm text-gray-600 dark:text-gray-300">Level</p>
-              <p className="text-xl font-bold text-gray-800 dark:text-white">{level}</p>
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
+      {/* Header */}
+      <div className="max-w-4xl mx-auto mb-8">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center">
+            <Headphones className="text-blue-600 mr-3" size={32} />
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800">Enhanced Voice Recognition</h1>
+              <p className="text-gray-600">Practice pronunciation with AI-powered feedback</p>
             </div>
           </div>
+          
+          <motion.button
+            onClick={() => setShowSettings(!showSettings)}
+            className="p-3 bg-white rounded-lg shadow-md hover:shadow-lg transition-shadow"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+          >
+            <Settings className="text-gray-600" size={24} />
+          </motion.button>
+        </div>
+      </div>
 
-          {currentQuiz && (
-            <div className="space-y-6">
-              {/* Language Indicator */}
-              <div className="flex items-center justify-center mb-2">
-                <div className="bg-gray-100 dark:bg-gray-700 px-3 py-1 rounded-full flex items-center">
-                  <Globe className="mr-1 text-blue-500" size={16} />
-                  <span className="text-sm">
-                    {languages.find(l => l.code === language)?.flag || '🌐'} {languages.find(l => l.code === language)?.name || 'English'}
-                  </span>
-                </div>
+      {/* Stats Dashboard */}
+      <div className="max-w-4xl mx-auto mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+          <motion.div
+            className="bg-white rounded-xl shadow-lg p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Current Streak</p>
+                <p className="text-3xl font-bold text-orange-600">{streak}</p>
               </div>
+              <Zap className="text-orange-500" size={32} />
+            </div>
+          </motion.div>
 
-              {/* Question */}
-              <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-xl">
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-xl font-semibold text-gray-800 dark:text-white">Question:</h3>
-                  <button 
-                    onClick={speakQuestion}
-                    className="p-2 bg-blue-100 dark:bg-blue-800 rounded-full text-blue-600 dark:text-blue-300 hover:bg-blue-200 dark:hover:bg-blue-700"
-                  >
-                    <Volume2 size={16} />
-                  </button>
-                </div>
-                <p className="text-lg text-gray-800 dark:text-white">{currentQuiz.question}</p>
-                
-                {showHints && currentQuiz.hint && (
-                  <div className="mt-4 p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg flex items-start">
-                    <Lightbulb className="text-yellow-600 dark:text-yellow-400 mr-2 flex-shrink-0 mt-0.5" size={16} />
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      Hint: {currentQuiz.hint}
-                    </p>
-                  </div>
-                )}
+          <motion.div
+            className="bg-white rounded-xl shadow-lg p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Total Score</p>
+                <p className="text-3xl font-bold text-purple-600">{totalScore}</p>
               </div>
+              <Star className="text-purple-500" size={32} />
+            </div>
+          </motion.div>
 
-              {/* Voice Controls */}
-              <div className="text-center">
-                <div className="mb-4">
-                  {renderWaveform()}
-                </div>
-                
-                <motion.button
-                  onClick={isListening ? stopListening : startListening}
-                  className={`p-6 rounded-full text-white font-bold text-lg shadow-lg transition-all ${
-                    isListening 
-                      ? 'bg-red-500 hover:bg-red-600' 
-                      : 'bg-blue-500 hover:bg-blue-600'
-                  }`}
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.9 }}
-                >
-                  {isListening ? (
-                    <>
-                      <MicOff size={32} className="mx-auto mb-2" />
-                      Stop Listening
-                    </>
-                  ) : (
-                    <>
-                      <Mic size={32} className="mx-auto mb-2" />
-                      Start Speaking
-                    </>
-                  )}
-                </motion.button>
-
-                {isListening && (
-                  <motion.div
-                    className="mt-4 text-blue-600 dark:text-blue-400"
-                    animate={{ scale: [1, 1.1, 1] }}
-                    transition={{ repeat: Infinity, duration: 1 }}
-                  >
-                    <p className="text-sm">Listening... Speak your answer clearly</p>
-                  </motion.div>
-                )}
+          <motion.div
+            className="bg-white rounded-xl shadow-lg p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Accuracy</p>
+                <p className="text-3xl font-bold text-green-600">
+                  {sessionStats.attempted > 0 ? Math.round((sessionStats.correct / sessionStats.attempted) * 100) : 0}%
+                </p>
               </div>
+              <Target className="text-green-500" size={32} />
+            </div>
+          </motion.div>
 
-              {/* Answer Display */}
-              {userAnswer && (
-                <div className="bg-gray-50 dark:bg-gray-700 p-4 rounded-xl">
-                  <h4 className="font-semibold mb-2 text-gray-800 dark:text-white">You said:</h4>
-                  <p className="text-lg text-gray-800 dark:text-white">"{userAnswer}"</p>
-                  {confidence > 0 && (
-                    <div className="mt-2">
-                      <p className="text-xs text-gray-500 dark:text-gray-400">
-                        Confidence: {Math.round(confidence * 100)}%
-                      </p>
-                      <div className="w-full h-2 bg-gray-200 dark:bg-gray-600 rounded-full mt-1">
-                        <div 
-                          className="h-2 bg-blue-500 rounded-full"
-                          style={{ width: `${confidence * 100}%` }}
-                        ></div>
+          <motion.div
+            className="bg-white rounded-xl shadow-lg p-6"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.4 }}
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-gray-600 text-sm">Confidence</p>
+                <p className="text-3xl font-bold text-blue-600">
+                  {Math.round(sessionStats.averageConfidence * 100)}%
+                </p>
+              </div>
+              <TrendingUp className="text-blue-500" size={32} />
+            </div>
+          </motion.div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="max-w-4xl mx-auto">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Quiz Panel */}
+          <div className="lg:col-span-2">
+            <motion.div
+              className="bg-white rounded-2xl shadow-xl p-8"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.5 }}
+            >
+              {currentQuiz && (
+                <>
+                  {/* Question */}
+                  <div className="mb-8">
+                    <div className="flex items-center justify-between mb-4">
+                      <h2 className="text-2xl font-bold text-gray-800">Question</h2>
+                      <div className="flex items-center space-x-2">
+                        <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                          {currentQuiz.subject}
+                        </span>
+                        <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                          {currentQuiz.difficulty}
+                        </span>
                       </div>
                     </div>
-                  )}
-                </div>
-              )}
+                    
+                    <div className="bg-gray-50 rounded-lg p-6 mb-4">
+                      <p className="text-lg text-gray-800 mb-4">{currentQuiz.question}</p>
+                      
+                      <motion.button
+                        onClick={playQuestion}
+                        disabled={isPlaying}
+                        className="flex items-center bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        {isPlaying ? <Pause className="mr-2" size={20} /> : <Play className="mr-2" size={20} />}
+                        {isPlaying ? 'Playing...' : 'Play Question'}
+                      </motion.button>
+                    </div>
 
-              {/* Result */}
-              {isCorrect !== null && (
-                <motion.div
-                  className={`p-4 rounded-xl text-center ${
-                    isCorrect 
-                      ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200' 
-                      : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200'
-                  }`}
-                  initial={{ scale: 0.9, opacity: 0 }}
-                  animate={{ scale: 1, opacity: 1 }}
-                >
-                  <div className="flex items-center justify-center mb-2">
-                    {isCorrect ? (
-                      <CheckCircle size={32} />
-                    ) : (
-                      <XCircle size={32} />
+                    {currentQuiz.hint && (
+                      <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                        <p className="text-yellow-800 text-sm">
+                          💡 <strong>Hint:</strong> {currentQuiz.hint}
+                        </p>
+                      </div>
                     )}
                   </div>
-                  <p className="text-lg font-semibold">
-                    {isCorrect ? 'Correct! Well done!' : 'Try again!'}
-                  </p>
-                  {!isCorrect && (
-                    <p className="text-sm mt-2">
-                      The correct answer is: {currentQuiz.answer}
-                      {currentQuiz.alternative_answers && currentQuiz.alternative_answers.length > 0 && (
-                        <span className="block mt-1 text-xs">
-                          Also accepted: {currentQuiz.alternative_answers.join(', ')}
-                        </span>
-                      )}
+
+                  {/* Voice Input */}
+                  <div className="mb-8">
+                    <h3 className="text-xl font-bold text-gray-800 mb-4">Your Answer</h3>
+                    
+                    {/* Waveform Visualization */}
+                    {settings.showWaveform && (
+                      <div className="mb-4">
+                        <canvas
+                          ref={canvasRef}
+                          width={400}
+                          height={80}
+                          className="w-full h-20 bg-gray-100 rounded-lg"
+                        />
+                      </div>
+                    )}
+
+                    {/* Voice Controls */}
+                    <div className="flex items-center justify-center space-x-4 mb-6">
+                      <motion.button
+                        onClick={isListening ? stopListening : startListening}
+                        className={`p-6 rounded-full text-white font-semibold text-lg shadow-lg ${
+                          isListening 
+                            ? 'bg-red-500 hover:bg-red-600' 
+                            : 'bg-green-500 hover:bg-green-600'
+                        }`}
+                        whileHover={{ scale: 1.1 }}
+                        whileTap={{ scale: 0.9 }}
+                        animate={isListening ? { scale: [1, 1.1, 1] } : {}}
+                        transition={isListening ? { repeat: Infinity, duration: 1 } : {}}
+                      >
+                        {isListening ? <MicOff size={32} /> : <Mic size={32} />}
+                      </motion.button>
+                    </div>
+
+                    <p className="text-center text-gray-600 mb-4">
+                      {isListening ? 'Listening... Speak your answer clearly' : 'Click the microphone to start speaking'}
                     </p>
-                  )}
-                </motion.div>
+
+                    {/* Transcript Display */}
+                    {transcript && (
+                      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                        <p className="text-blue-800">
+                          <strong>You said:</strong> "{transcript}"
+                        </p>
+                        {confidence > 0 && (
+                          <p className="text-blue-600 text-sm mt-1">
+                            Confidence: {Math.round(confidence * 100)}%
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Result Display */}
+                    <AnimatePresence>
+                      {result && (
+                        <motion.div
+                          className={`border rounded-lg p-6 ${
+                            result.isCorrect 
+                              ? 'bg-green-50 border-green-200' 
+                              : 'bg-red-50 border-red-200'
+                          }`}
+                          initial={{ opacity: 0, y: 20 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -20 }}
+                        >
+                          <div className="flex items-center mb-3">
+                            {result.isCorrect ? (
+                              <CheckCircle className="text-green-600 mr-2" size={24} />
+                            ) : (
+                              <XCircle className="text-red-600 mr-2" size={24} />
+                            )}
+                            <h4 className={`font-bold ${
+                              result.isCorrect ? 'text-green-800' : 'text-red-800'
+                            }`}>
+                              {result.isCorrect ? 'Correct!' : 'Try Again'}
+                            </h4>
+                          </div>
+                          
+                          <p className={`mb-3 ${
+                            result.isCorrect ? 'text-green-700' : 'text-red-700'
+                          }`}>
+                            {result.feedback}
+                          </p>
+
+                          {settings.pronunciationFeedback && (
+                            <div className="grid grid-cols-2 gap-4 text-sm">
+                              <div>
+                                <span className="font-medium">Confidence:</span>
+                                <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                  <div 
+                                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${result.confidence * 100}%` }}
+                                  ></div>
+                                </div>
+                                <span className="text-xs text-gray-600">
+                                  {Math.round(result.confidence * 100)}%
+                                </span>
+                              </div>
+                              
+                              <div>
+                                <span className="font-medium">Pronunciation:</span>
+                                <div className="w-full bg-gray-200 rounded-full h-2 mt-1">
+                                  <div 
+                                    className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                                    style={{ width: `${result.pronunciationScore * 100}%` }}
+                                  ></div>
+                                </div>
+                                <span className="text-xs text-gray-600">
+                                  {Math.round(result.pronunciationScore * 100)}%
+                                </span>
+                              </div>
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    {/* Action Buttons */}
+                    <div className="flex justify-center space-x-4 mt-6">
+                      <motion.button
+                        onClick={nextQuiz}
+                        className="bg-purple-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-purple-700 transition-colors"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        Next Question
+                      </motion.button>
+                      
+                      <motion.button
+                        onClick={() => {
+                          setTranscript('');
+                          setResult(null);
+                          setConfidence(0);
+                        }}
+                        className="bg-gray-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-gray-700 transition-colors"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <RotateCcw className="inline mr-2" size={16} />
+                        Reset
+                      </motion.button>
+                    </div>
+                  </div>
+                </>
               )}
+            </motion.div>
+          </div>
 
-              {/* Controls */}
-              <div className="flex justify-center space-x-4">
-                <motion.button
-                  onClick={nextQuiz}
-                  className="bg-purple-600 text-white px-6 py-3 rounded-lg font-semibold hover:bg-purple-700 transition-colors flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <SkipForward className="mr-2" size={20} />
-                  Next Question
-                </motion.button>
-                
-                <motion.button
-                  onClick={() => setShowHints(!showHints)}
-                  className="bg-yellow-600 text-white px-4 py-3 rounded-lg font-semibold hover:bg-yellow-700 transition-colors flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  {showHints ? <EyeOff className="mr-2" size={20} /> : <Eye className="mr-2" size={20} />}
-                  {showHints ? 'Hide Hints' : 'Show Hints'}
-                </motion.button>
+          {/* Settings Panel */}
+          <div className="lg:col-span-1">
+            <motion.div
+              className="bg-white rounded-2xl shadow-xl p-6"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: 0.6 }}
+            >
+              <h3 className="text-xl font-bold text-gray-800 mb-6 flex items-center">
+                <Brain className="mr-2 text-purple-600" size={24} />
+                Settings
+              </h3>
+
+              <div className="space-y-6">
+                {/* Language Selection */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Language
+                  </label>
+                  <select
+                    value={settings.language}
+                    onChange={(e) => setSettings(prev => ({ ...prev, language: e.target.value }))}
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    {languages.map(lang => (
+                      <option key={lang.code} value={lang.code}>
+                        {lang.flag} {lang.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Sensitivity */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Sensitivity: {Math.round(settings.sensitivity * 100)}%
+                  </label>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1"
+                    step="0.1"
+                    value={settings.sensitivity}
+                    onChange={(e) => setSettings(prev => ({ ...prev, sensitivity: parseFloat(e.target.value) }))}
+                    className="w-full"
+                  />
+                </div>
+
+                {/* Toggle Settings */}
+                <div className="space-y-3">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={settings.autoPlay}
+                      onChange={(e) => setSettings(prev => ({ ...prev, autoPlay: e.target.checked }))}
+                      className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Auto-play next question</span>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={settings.showWaveform}
+                      onChange={(e) => setSettings(prev => ({ ...prev, showWaveform: e.target.checked }))}
+                      className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Show waveform</span>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={settings.pronunciationFeedback}
+                      onChange={(e) => setSettings(prev => ({ ...prev, pronunciationFeedback: e.target.checked }))}
+                      className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Pronunciation feedback</span>
+                  </label>
+
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={settings.adaptiveDifficulty}
+                      onChange={(e) => setSettings(prev => ({ ...prev, adaptiveDifficulty: e.target.checked }))}
+                      className="mr-3 h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <span className="text-sm text-gray-700">Adaptive difficulty</span>
+                  </label>
+                </div>
+
+                {/* Progress Summary */}
+                <div className="border-t pt-6">
+                  <h4 className="font-medium text-gray-800 mb-3">Session Progress</h4>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span>Questions Attempted:</span>
+                      <span className="font-medium">{sessionStats.attempted}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Correct Answers:</span>
+                      <span className="font-medium text-green-600">{sessionStats.correct}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Current Streak:</span>
+                      <span className="font-medium text-orange-600">{streak}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          )}
+            </motion.div>
+          </div>
+        </div>
+      </div>
 
-          {!currentQuiz && (
-            <div className="text-center py-12">
-              <Mic className="mx-auto mb-4 text-gray-400" size={48} />
-              <p className="text-gray-600 dark:text-gray-300">
-                No voice quizzes available for the selected language and difficulty.
-              </p>
-              <button
-                onClick={loadVoiceQuizzes}
-                className="mt-4 bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors"
-              >
-                Reload Quizzes
-              </button>
-            </div>
-          )}
-        </>
-      )}
+      {/* Audio Element */}
+      <audio ref={audioRef} className="hidden" />
     </div>
   );
 };
