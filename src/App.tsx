@@ -10,6 +10,8 @@ import ARProblem from './components/ARProblem';
 import Login from './components/Login';
 import LiveCode from './components/LiveCode';
 import StoryMode from './components/StoryMode';
+import EnhancedVoiceRecognition from './components/EnhancedVoiceRecognition';
+import BoltBadge from './components/BoltBadge';
 import { useAppStore } from './store/useAppStore';
 
 // Initialize Sentry for error monitoring
@@ -249,9 +251,24 @@ function App() {
                   <StoryMode />
                 </motion.div>
               } />
+              <Route path="/voice-recognition" element={
+                <motion.div
+                  key="voice-recognition"
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -30 }}
+                  transition={{ duration: 0.5 }}
+                  className="min-h-screen"
+                >
+                  <EnhancedVoiceRecognition />
+                </motion.div>
+              } />
             </Routes>
           )}
         </AnimatePresence>
+
+        {/* Bolt.new Badge - Always visible */}
+        <BoltBadge />
       </div>
     </Sentry.ErrorBoundary>
   );
