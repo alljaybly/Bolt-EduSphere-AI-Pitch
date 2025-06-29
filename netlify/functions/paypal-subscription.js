@@ -19,6 +19,22 @@ const corsHeaders = {
 };
 
 /**
+ * Safely parse JSON response with fallback
+ */
+async function safeJsonParse(response) {
+  try {
+    const text = await response.text();
+    if (!text || text.trim() === '') {
+      return { error: 'Empty response from PayPal API' };
+    }
+    return JSON.parse(text);
+  } catch (error) {
+    console.error('Failed to parse JSON response:', error);
+    return { error: 'Invalid JSON response from PayPal API' };
+  }
+}
+
+/**
  * Get PayPal access token
  */
 async function getPayPalAccessToken() {
@@ -36,10 +52,18 @@ async function getPayPalAccessToken() {
 
     if (!response.ok) {
       const errorText = await response.text();
-      throw new Error(`PayPal auth failed: ${response.status} - ${errorText}`);
+      throw new Error(`PayPal auth failed: ${response.status} - ${errorText || 'Unknown error'}`);
     }
 
-    const data = await response.json();
+    const data = await safeJsonParse(response);
+    if (data.error) {
+      throw new Error(`PayPal auth response error: ${data.error}`);
+    }
+
+    if (!data.access_token) {
+      throw new Error('PayPal auth response missing access token');
+    }
+
     return data.access_token;
   } catch (error) {
     console.error('Failed to get PayPal access token:', error);
@@ -66,11 +90,15 @@ async function checkSubscription(subscriptionId) {
       if (response.status === 404) {
         return { exists: false, active: false };
       }
-      const errorData = await response.json();
-      throw new Error(`Failed to check subscription: ${errorData.message || response.status}`);
+      const errorText = await response.text();
+      throw new Error(`Failed to check subscription: ${response.status} - ${errorText || 'Unknown error'}`);
     }
 
-    const subscription = await response.json();
+    const subscription = await safeJsonParse(response);
+    if (subscription.error) {
+      throw new Error(`Subscription response error: ${subscription.error}`);
+    }
+
     const isActive = subscription.status === 'ACTIVE' || subscription.status === 'APPROVED';
     
     return {
@@ -82,6 +110,31 @@ async function checkSubscription(subscriptionId) {
   } catch (error) {
     console.error('Failed to check subscription status:', error);
     throw error;
+  }
+}
+
+/**
+ * Create a safe JSON response
+ */
+function createJsonResponse(statusCode, data) {
+  try {
+    const jsonString = JSON.stringify(data);
+    return {
+      statusCode,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: jsonString
+    };
+  } catch (error) {
+    console.error('Failed to stringify response data:', error);
+    return {
+      statusCode: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        success: false,
+        error: 'Internal server error',
+        message: 'Failed to create JSON response'
+      })
+    };
   }
 }
 
@@ -106,21 +159,32 @@ export const handler = async (event, context) => {
   }
 
   try {
-    const requestBody = event.body ? JSON.parse(event.body) : {};
+    let requestBody = {};
+    
+    // Safely parse request body
+    if (event.body) {
+      try {
+        requestBody = JSON.parse(event.body);
+      } catch (parseError) {
+        console.error('Failed to parse request body:', parseError);
+        return createJsonResponse(400, {
+          success: false,
+          error: 'Invalid JSON in request body',
+          message: 'Request body must be valid JSON'
+        });
+      }
+    }
+
     const { action, subscription_id } = requestBody;
     const userId = event.headers['x-user-id'];
 
     // Validate user ID for most actions
     if (!userId && action !== 'get_client_token') {
-      return {
-        statusCode: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          success: false,
-          error: 'User ID required',
-          message: 'X-User-ID header is required for this action'
-        })
-      };
+      return createJsonResponse(400, {
+        success: false,
+        error: 'User ID required',
+        message: 'X-User-ID header is required for this action'
+      });
     }
 
     // Process different actions
@@ -132,66 +196,46 @@ export const handler = async (event, context) => {
         
         try {
           const subscriptionStatus = await checkSubscription(demoSubscriptionId);
-          return {
-            statusCode: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              success: true,
-              hasActiveSubscription: subscriptionStatus.active,
-              status: subscriptionStatus.status,
-              subscription: subscriptionStatus.details
-            })
-          };
+          return createJsonResponse(200, {
+            success: true,
+            hasActiveSubscription: subscriptionStatus.active,
+            status: subscriptionStatus.status,
+            subscription: subscriptionStatus.details
+          });
         } catch (error) {
           // If there's an error checking the subscription, assume no active subscription
           console.error('Error checking subscription:', error);
-          return {
-            statusCode: 200,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              success: true,
-              hasActiveSubscription: false,
-              error: error.message
-            })
-          };
+          return createJsonResponse(200, {
+            success: true,
+            hasActiveSubscription: false,
+            error: error.message
+          });
         }
 
       case 'get_client_token':
         // Return client ID for frontend initialization
-        return {
-          statusCode: 200,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: true,
-            client_id: PAYPAL_CLIENT_ID,
-            environment: process.env.NODE_ENV === 'production' ? 'production' : 'sandbox'
-          })
-        };
+        return createJsonResponse(200, {
+          success: true,
+          client_id: PAYPAL_CLIENT_ID,
+          environment: process.env.NODE_ENV === 'production' ? 'production' : 'sandbox'
+        });
 
       default:
-        return {
-          statusCode: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            success: false,
-            error: 'Invalid action',
-            message: `Action '${action}' is not supported`
-          })
-        };
+        return createJsonResponse(400, {
+          success: false,
+          error: 'Invalid action',
+          message: `Action '${action}' is not supported`
+        });
     }
   } catch (error) {
     console.error('PayPal Subscription function error:', error);
     Sentry.captureException(error);
 
-    return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        success: false,
-        error: 'Internal server error',
-        message: error.message,
-        timestamp: new Date().toISOString()
-      })
-    };
+    return createJsonResponse(500, {
+      success: false,
+      error: 'Internal server error',
+      message: error.message || 'Unknown error occurred',
+      timestamp: new Date().toISOString()
+    });
   }
 };
