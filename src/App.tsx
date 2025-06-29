@@ -14,8 +14,8 @@ import { useAppStore } from './store/useAppStore';
 
 // Initialize Sentry for error monitoring
 Sentry.init({
-  dsn: process.env.VITE_SENTRY_DSN || 'https://your-sentry-dsn@sentry.io/project-id',
-  environment: process.env.NODE_ENV || 'development',
+  dsn: import.meta.env.VITE_SENTRY_DSN || 'https://your-sentry-dsn@sentry.io/project-id',
+  environment: import.meta.env.MODE || 'development',
   integrations: [
     new Sentry.BrowserTracing({
       routingInstrumentation: Sentry.reactRouterV6Instrumentation(
@@ -27,7 +27,7 @@ Sentry.init({
   tracesSampleRate: 0.1,
   beforeSend(event) {
     // Filter out non-critical errors in development
-    if (process.env.NODE_ENV === 'development') {
+    if (import.meta.env.MODE === 'development') {
       return event.level === 'error' ? event : null;
     }
     return event;
@@ -43,7 +43,7 @@ function App() {
     // Set user context for Sentry
     Sentry.setUser({
       id: localStorage.getItem('edusphere_user_id') || 'anonymous',
-      username: 'EduSphere User',
+      username: '',
     });
 
     // Add global error handler
@@ -84,7 +84,7 @@ function App() {
             >
               Try Again
             </button>
-            {process.env.NODE_ENV === 'development' && (
+            {import.meta.env.MODE === 'development' && (
               <details className="mt-4 text-left">
                 <summary className="cursor-pointer text-sm text-gray-500">Error Details</summary>
                 <pre className="mt-2 text-xs text-red-600 overflow-auto">{error.toString()}</pre>

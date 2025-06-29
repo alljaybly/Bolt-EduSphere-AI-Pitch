@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as Sentry from '@sentry/react';
-import { 
-  User, 
-  Mail, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ArrowLeft, 
-  LogIn, 
+import {
+  User,
+  Mail,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowLeft,
+  LogIn,
   UserPlus,
   Shield,
   CheckCircle,
@@ -16,9 +16,6 @@ import {
   Loader2,
   Github,
   Chrome,
-  Smartphone,
-  Key,
-  AlertCircle
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -40,7 +37,7 @@ const Login: React.FC = () => {
     password: '',
     confirmPassword: '',
     firstName: '',
-    lastName: ''
+    lastName: '',
   });
 
   // Check if user is already logged in
@@ -64,11 +61,11 @@ const Login: React.FC = () => {
    */
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: value
+      [name]: value,
     }));
-    
+
     // Clear errors when user starts typing
     if (error) setError(null);
   };
@@ -113,7 +110,7 @@ const Login: React.FC = () => {
    */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!validateForm()) return;
 
     setIsLoading(true);
@@ -125,25 +122,25 @@ const Login: React.FC = () => {
         // Sign in existing user
         const { data, error } = await supabase.auth.signInWithPassword({
           email: formData.email,
-          password: formData.password
+          password: formData.password,
         });
 
         if (error) throw error;
 
         if (data.user) {
           setSuccess('Login successful! Redirecting...');
-          
+
           // Store user info in Supabase users table
           await fetch('/.netlify/functions/auth', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
             },
             body: JSON.stringify({
               action: 'login',
               user_id: data.user.id,
-              email: data.user.email
-            })
+              email: data.user.email,
+            }),
           });
 
           setTimeout(() => {
@@ -159,9 +156,9 @@ const Login: React.FC = () => {
             data: {
               first_name: formData.firstName,
               last_name: formData.lastName,
-              full_name: `${formData.firstName} ${formData.lastName}`
-            }
-          }
+              full_name: `${formData.firstName} ${formData.lastName}`,
+            },
+          },
         });
 
         if (error) throw error;
@@ -171,28 +168,28 @@ const Login: React.FC = () => {
           await fetch('/.netlify/functions/auth', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
             },
             body: JSON.stringify({
               action: 'signup',
               user_id: data.user.id,
               email: data.user.email,
               first_name: formData.firstName,
-              last_name: formData.lastName
-            })
+              last_name: formData.lastName,
+            }),
           });
 
           setSuccess('Account created successfully! Please check your email to verify your account.');
-          
+
           // Switch to login mode after successful signup
           setTimeout(() => {
             setIsLogin(true);
-            setFormData(prev => ({
+            setFormData((prev) => ({
               ...prev,
               password: '',
               confirmPassword: '',
               firstName: '',
-              lastName: ''
+              lastName: '',
             }));
           }, 2000);
         }
@@ -200,7 +197,7 @@ const Login: React.FC = () => {
     } catch (error: any) {
       console.error('Authentication error:', error);
       Sentry.captureException(error);
-      
+
       // Handle specific error messages
       if (error.message.includes('Invalid login credentials')) {
         setError('Invalid email or password. Please try again.');
@@ -227,12 +224,11 @@ const Login: React.FC = () => {
       const { error } = await supabase.auth.signInWithOAuth({
         provider,
         options: {
-          redirectTo: `${window.location.origin}/play-learn`
-        }
+          redirectTo: `${window.location.origin}/play-learn`,
+        },
       });
 
       if (error) throw error;
-
     } catch (error: any) {
       console.error('Social login error:', error);
       Sentry.captureException(error);
@@ -255,7 +251,7 @@ const Login: React.FC = () => {
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
-        redirectTo: `${window.location.origin}/reset-password`
+        redirectTo: `${window.location.origin}/reset-password`,
       });
 
       if (error) throw error;
@@ -274,7 +270,7 @@ const Login: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4">
       {/* Background Pattern */}
       <div className="absolute inset-0 opacity-10">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg width="60" height="60" viewBox="0 0 60 60" xmlns="http://www.w3.org/2000/svg"%3E%3Cg fill="none" fill-rule="evenodd"%3E%3Cg fill="%23ffffff" fill-opacity="0.1"%3E%3Ccircle cx="30" cy="30" r="2"/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')]"></div>
+        <div className="absolute inset-0 bg-gradient-to-br from-transparent via-white/10 to-transparent"></div>
       </div>
 
       <motion.div
@@ -311,13 +307,13 @@ const Login: React.FC = () => {
             >
               <User className="text-white" size={32} />
             </motion.div>
-            
+
             <h1 className="text-3xl font-bold text-white mb-2">
               {isLogin ? 'Welcome Back' : 'Create Account'}
             </h1>
             <p className="text-white/70">
-              {isLogin 
-                ? 'Sign in to continue your learning journey' 
+              {isLogin
+                ? 'Sign in to continue your learning journey'
                 : 'Join EduSphere AI and start learning'}
             </p>
           </div>
@@ -479,11 +475,11 @@ const Login: React.FC = () => {
               ) : (
                 <UserPlus className="mr-2" size={20} />
               )}
-              {isLoading 
-                ? 'Processing...' 
-                : isLogin 
-                  ? 'Sign In' 
-                  : 'Create Account'}
+              {isLoading
+                ? 'Processing...'
+                : isLogin
+                ? 'Sign In'
+                : 'Create Account'}
             </motion.button>
           </form>
 
@@ -524,7 +520,7 @@ const Login: React.FC = () => {
           {/* Toggle Login/Signup */}
           <div className="mt-8 text-center">
             <p className="text-white/70">
-              {isLogin ? "Don't have an account?" : "Already have an account?"}
+              {isLogin ? "Don't have an account?" : 'Already have an account?'}
               <button
                 type="button"
                 onClick={() => {
@@ -536,7 +532,7 @@ const Login: React.FC = () => {
                     password: '',
                     confirmPassword: '',
                     firstName: '',
-                    lastName: ''
+                    lastName: '',
                   });
                 }}
                 className="ml-2 text-blue-400 hover:text-blue-300 font-medium transition-colors"

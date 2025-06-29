@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import * as Sentry from '@sentry/react';
 import { 
   Camera, 
-  Cube, 
+  Box, 
   RotateCcw, 
   ArrowLeft, 
   Play, 
@@ -120,10 +120,10 @@ const ARProblem: React.FC = () => {
         // Fallback to sample problem
         setCurrentProblem({
           id: 'sample_1',
-          object_type: 'cube',
-          question: 'How many faces does this cube have?',
+          object_type: 'box',
+          question: 'How many faces does this box have?',
           answer: '6',
-          hint: 'Count each flat surface of the cube',
+          hint: 'Count each flat surface of the box',
           difficulty: 'easy'
         });
       }
@@ -229,9 +229,9 @@ const ARProblem: React.FC = () => {
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
 
-    // Draw 3D cube representation
-    if (currentProblem.object_type === 'cube') {
-      drawCube(ctx, centerX, centerY, 100);
+    // Draw 3D box representation
+    if (currentProblem.object_type === 'box') {
+      drawBox(ctx, centerX, centerY, 100);
     }
 
     // Draw grid if enabled
@@ -249,13 +249,13 @@ const ARProblem: React.FC = () => {
   };
 
   /**
-   * Draw a 3D cube
+   * Draw a 3D box
    */
-  const drawCube = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => {
+  const drawBox = (ctx: CanvasRenderingContext2D, x: number, y: number, size: number) => {
     const halfSize = size / 2;
     const depth = size * 0.3;
 
-    // Set cube style
+    // Set box style
     ctx.strokeStyle = '#3B82F6';
     ctx.lineWidth = 3;
     ctx.fillStyle = 'rgba(59, 130, 246, 0.3)';
@@ -508,7 +508,7 @@ const ARProblem: React.FC = () => {
           </motion.button>
 
           <h1 className="text-white text-xl font-bold flex items-center">
-            <Cube className="mr-2" size={24} />
+            <Box className="mr-2" size={24} />
             AR Problems
           </h1>
 
@@ -560,7 +560,7 @@ const ARProblem: React.FC = () => {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
             >
-              <Cube className="mx-auto mb-6 text-blue-400" size={80} />
+              <Box className="mx-auto mb-6 text-blue-400" size={80} />
               <h2 className="text-3xl font-bold mb-4">AR Problem Solving</h2>
               <p className="text-gray-300 mb-8">
                 Solve mathematical problems in augmented reality. Point your camera at a flat surface to begin.
@@ -607,7 +607,7 @@ const ARProblem: React.FC = () => {
                   
                   {showHint && currentProblem.hint && (
                     <p className="text-yellow-300 text-sm mb-3">
-                      💡 {currentProblem.hint}
+                      ðŸ’¡ {currentProblem.hint}
                     </p>
                   )}
 
