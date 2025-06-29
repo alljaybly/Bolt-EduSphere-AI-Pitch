@@ -1,30 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import * as Sentry from '@sentry/react';
-import { 
-  Mic, 
-  MicOff, 
-  Volume2, 
-  VolumeX,
-  Play,
-  Pause,
-  RotateCcw,
-  CheckCircle,
-  XCircle,
-  Settings,
-  Languages,
-  Zap,
-  Brain,
-  Loader2,
-  Award,
-  Star,
-  Target,
-  TrendingUp,
-  Globe,
-  Headphones,
-  Waveform,
-  Activity
-} from 'lucide-react';
+import { Mic, MicOff, Volume2, VolumeX, Play, Pause, RotateCcw, CheckCircle, XCircle, Settings, Languages, Zap, Brain, Loader2, Award, Star, Target, TrendingUp, Globe, Headphones, AudioWaveform as Waveform, Activity } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/revenuecat.js';
 import confetti from 'canvas-confetti';
