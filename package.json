@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@revenuecat/purchases-js": "^1.0.0",
     "@sentry/node": "^7.107.0",
     "@sentry/react": "^7.107.0",
     "@supabase/supabase-js": "^2.50.0",

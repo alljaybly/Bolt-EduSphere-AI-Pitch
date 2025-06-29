@@ -24,8 +24,8 @@ import {
   Minimize
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { hasPremiumAccess, getCurrentUserId } from '../lib/revenuecat.js';
 import { supabase } from '../lib/supabase';
+import PaymentModal from './PaymentModal';
 
 /**
  * AR Problem Component
@@ -46,6 +46,7 @@ const ARProblem: React.FC = () => {
   const [showHint, setShowHint] = useState(false);
   const [cameraPermission, setCameraPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [arSettings, setArSettings] = useState({
     showGrid: true,
     showLabels: true,
@@ -62,7 +63,7 @@ const ARProblem: React.FC = () => {
         setIsLoading(true);
         
         // Check premium access
-        const premiumStatus = await hasPremiumAccess();
+        const premiumStatus = await checkPremiumSubscription();
         setIsPremium(premiumStatus);
 
         // Check WebXR support
@@ -97,6 +98,38 @@ const ARProblem: React.FC = () => {
 
     checkARSupport();
   }, []);
+
+  /**
+   * Check if user has premium subscription via PayPal
+   */
+  const checkPremiumSubscription = async () => {
+    try {
+      // Call PayPal subscription check endpoint
+      const response = await fetch('/.netlify/functions/paypal', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-User-ID': getCurrentUserId()
+        },
+        body: JSON.stringify({
+          action: 'check_subscription'
+        })
+      });
+
+      const result = await response.json();
+      return result.success && result.hasActiveSubscription;
+    } catch (error) {
+      console.error('Failed to check premium subscription:', error);
+      return false;
+    }
+  };
+
+  /**
+   * Get current user ID from local storage
+   */
+  const getCurrentUserId = () => {
+    return localStorage.getItem('edusphere_user_id') || 'anonymous_user';
+  };
 
   /**
    * Load AR problems from Supabase
@@ -138,7 +171,7 @@ const ARProblem: React.FC = () => {
    */
   const startARSession = async () => {
     if (!isPremium) {
-      alert('AR Problems require a premium subscription');
+      setShowPaymentModal(true);
       return;
     }
 
@@ -432,6 +465,14 @@ const ARProblem: React.FC = () => {
   };
 
   /**
+   * Handle successful payment/subscription
+   */
+  const handlePaymentSuccess = () => {
+    setIsPremium(true);
+    setShowPaymentModal(false);
+  };
+
+  /**
    * Toggle fullscreen
    */
   const toggleFullscreen = () => {
@@ -474,7 +515,7 @@ const ARProblem: React.FC = () => {
           </p>
           <div className="space-y-3">
             <button
-              onClick={() => navigate('/play-learn')}
+              onClick={() => setShowPaymentModal(true)}
               className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:shadow-lg transition-all"
             >
               <Crown className="inline mr-2" size={20} />
@@ -488,6 +529,13 @@ const ARProblem: React.FC = () => {
             </button>
           </div>
         </motion.div>
+
+        {/* Payment Modal */}
+        <PaymentModal 
+          isOpen={showPaymentModal}
+          onClose={() => setShowPaymentModal(false)}
+          onSuccess={handlePaymentSuccess}
+        />
       </div>
     );
   }
@@ -607,7 +655,7 @@ const ARProblem: React.FC = () => {
                   
                   {showHint && currentProblem.hint && (
                     <p className="text-yellow-300 text-sm mb-3">
-                      ðŸ’¡ {currentProblem.hint}
+                      💡 {currentProblem.hint}
                     </p>
                   )}
 
@@ -680,6 +728,13 @@ const ARProblem: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Payment Modal */}
+      <PaymentModal 
+        isOpen={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        onSuccess={handlePaymentSuccess}
+      />
     </div>
   );
 };
