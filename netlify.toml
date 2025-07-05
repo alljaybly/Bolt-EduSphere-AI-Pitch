@@ -1,11 +1,11 @@
 [build]
-  command = "rm -rf node_modules package-lock.json && npm install && npm run build"
+  command = "npm ci && npm run build"
   publish = "dist"
   environment = { NODE_VERSION = "20.19.0" }
 
 [functions]
   directory = "netlify/functions"
-  environment = { VITE_SUPABASE_URL = "https://faphnxotbuwiiwfatuok.supabase.co", SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZhcGhueG90YnV3aWl3ZmF0dW9rIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc0OTIyMDExMywiZXhwIjoyMDY0Nzk2MTEzfQ.FvldBv28feI4LyVOAJXs8VGztsYnprQ8J8PsnH1rRRo" }
+  environment = { VITE_SUPABASE_URL = "https://pdvxuebpqkctsanjdmeh.supabase.co" }
 
 [[redirects]]
   from = "/*"
