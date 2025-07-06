@@ -1,13 +1,9 @@
-[build]
-       command = "npm ci && npm run build"
-       publish = "dist"
-       environment = { NODE_VERSION = "20.19.0" }
+[[redirects]]
+      from = "/*"
+      to = "/index.html"
+      status = 200
 
-     [functions]
-       directory = "netlify/functions"
-       environment = { VITE_SUPABASE_URL = "https://pdvxuebpqkctsanjdmeh.supabase.co" }
-
-     [[redirects]]
-       from = "/*"
-       to = "/index.html"
-       status = 200
+    [build]
+      command = "npm run build"
+      publish = "dist"
+      environment = { NODE_VERSION = "20.19.0" }
