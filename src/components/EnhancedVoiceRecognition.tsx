@@ -5,6 +5,43 @@ import { supabase } from '../lib/supabase';
 import { getCurrentUserId } from '../lib/authUtils';
 import confetti from 'canvas-confetti';
 
+// Type definition for SpeechRecognition
+interface SpeechRecognition extends EventTarget {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  start: () => void;
+  stop: () => void;
+  onstart: (() => void) | null;
+  onresult: ((event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+}
+
+interface SpeechRecognitionEvent {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionResultList {
+  length: number;
+  [index: number]: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionResult {
+  isFinal: boolean;
+  [index: number]: SpeechRecognitionAlternative;
+}
+
+interface SpeechRecognitionAlternative {
+  transcript: string;
+  confidence: number;
+}
+
+interface SpeechRecognitionErrorEvent {
+  error: string;
+}
+
 interface VoiceQuiz {
   id: string;
   question: string;
@@ -60,6 +97,17 @@ const EnhancedVoiceRecognition: React.FC = () => {
     initializeSpeechRecognition();
     loadVoiceQuizzes();
     loadUserProgress();
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+    };
   }, []);
 
   /**
@@ -73,7 +121,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
+    const recognition = new SpeechRecognition() as SpeechRecognition;
 
     recognition.continuous = false;
     recognition.interimResults = true;
@@ -85,7 +133,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
       setError(null);
     };
 
-    recognition.onresult = (event) => {
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
       let finalTranscript = '';
       let interimTranscript = '';
 
@@ -109,7 +157,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
       }
     };
 
-    recognition.onerror = (event) => {
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       console.error('Speech recognition error:', event.error);
       setIsListening(false);
       
@@ -150,7 +198,8 @@ const EnhancedVoiceRecognition: React.FC = () => {
         .limit(20);
 
       if (error) {
-        throw error;
+        console.error('Supabase error:', error.message, error.details, error.hint);
+        throw new Error(`Failed to load quizzes: ${error.message}`);
       }
 
       if (data && data.length > 0) {
@@ -197,7 +246,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
         setQuizzes(sampleQuizzes);
         setCurrentQuiz(sampleQuizzes[0]);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('Failed to load voice quizzes:', error);
       setError('Failed to load quizzes. Please try again.');
     } finally {
@@ -376,6 +425,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
     setIsCorrect(null);
     setShowHint(false);
     setConfidence(0);
+    setError(null);
   };
 
   /**
@@ -395,7 +445,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
    */
   const playSuccessSound = () => {
     try {
-      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT'); // Replace with actual success sound file
       audio.volume = 0.3;
       audio.play().catch(() => {});
     } catch (error) {
@@ -408,7 +458,7 @@ const EnhancedVoiceRecognition: React.FC = () => {
    */
   const playErrorSound = () => {
     try {
-      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+      const audio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT'); // Replace with actual error sound file
       audio.volume = 0.2;
       audio.play().catch(() => {});
     } catch (error) {
@@ -710,96 +760,97 @@ const EnhancedVoiceRecognition: React.FC = () => {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.9, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-              >
-                <h3 className="text-lg font-bold mb-4">Voice Recognition Settings</h3>
-                
-                <div className="space-y-4">
-                  {/* Language */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">Language</label>
-                    <select
-                      value={settings.language}
-                      onChange={(e) => updateSettings({ language: e.target.value })}
-                      className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    >
-                      <option value="en-US">English (US)</option>
-                      <option value="en-GB">English (UK)</option>
-                      <option value="es-ES">Spanish</option>
-                      <option value="fr-FR">French</option>
-                      <option value="de-DE">German</option>
-                      <option value="zh-CN">Chinese</option>
-                    </select>
-                  </div>
-
-                  {/* Sensitivity */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Sensitivity: {Math.round(settings.sensitivity * 100)}%
-                    </label>
-                    <input
-                      type="range"
-                      min="0.1"
-                      max="1"
-                      step="0.1"
-                      value={settings.sensitivity}
-                      onChange={(e) => updateSettings({ sensitivity: Number(e.target.value) })}
-                      className="w-full"
-                    />
-                  </div>
-
-                  {/* Timeout */}
-                  <div>
-                    <label className="block text-sm font-medium mb-2">
-                      Timeout: {settings.timeout / 1000}s
-                    </label>
-                    <input
-                      type="range"
-                      min="3000"
-                      max="10000"
-                      step="1000"
-                      value={settings.timeout}
-                      onChange={(e) => updateSettings({ timeout: Number(e.target.value) })}
-                      className="w-full"
-                    />
-                  </div>
-
-                  {/* Toggles */}
-                  <div className="space-y-2">
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.autoPlay}
-                        onChange={(e) => updateSettings({ autoPlay: e.target.checked })}
-                        className="mr-2"
-                      />
-                      <span className="text-sm">Auto-advance to next quiz</span>
-                    </label>
-
-                    <label className="flex items-center">
-                      <input
-                        type="checkbox"
-                        checked={settings.showHints}
-                        onChange={(e) => updateSettings({ showHints: e.target.checked })}
-                        className="mr-2"
-                      />
-                      <span className="text-sm">Show hint button</span>
-                    </label>
-                  </div>
-                </div>
-
-                <button
-                  onClick={() => setShowSettings(false)}
-                  className="w-full mt-6 bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors"
+ fringes
                 >
-                  Done
-                </button>
+                  <h3 className="text-lg font-bold mb-4">Voice Recognition Settings</h3>
+                  
+                  <div className="space-y-4">
+                    {/* Language */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Language</label>
+                      <select
+                        value={settings.language}
+                        onChange={(e) => updateSettings({ language: e.target.value })}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="en-US">English (US)</option>
+                        <option value="en-GB">English (UK)</option>
+                        <option value="es-ES">Spanish</option>
+                        <option value="fr-FR">French</option>
+                        <option value="de-DE">German</option>
+                        <option value="zh-CN">Chinese</option>
+                      </select>
+                    </div>
+
+                    {/* Sensitivity */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        Sensitivity: {Math.round(settings.sensitivity * 100)}%
+                      </label>
+                      <input
+                        type="range"
+                        min="0.1"
+                        max="1"
+                        step="0.1"
+                        value={settings.sensitivity}
+                        onChange={(e) => updateSettings({ sensitivity: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* Timeout */}
+                    <div>
+                      <label className="block text-sm font-medium mb-2">
+                        Timeout: {settings.timeout / 1000}s
+                      </label>
+                      <input
+                        type="range"
+                        min="3000"
+                        max="10000"
+                        step="1000"
+                        value={settings.timeout}
+                        onChange={(e) => updateSettings({ timeout: Number(e.target.value) })}
+                        className="w-full"
+                      />
+                    </div>
+
+                    {/* Toggles */}
+                    <div className="space-y-2">
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={settings.autoPlay}
+                          onChange={(e) => updateSettings({ autoPlay: e.target.checked })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Auto-advance to next quiz</span>
+                      </label>
+
+                      <label className="flex items-center">
+                        <input
+                          type="checkbox"
+                          checked={settings.showHints}
+                          onChange={(e) => updateSettings({ showHints: e.target.checked })}
+                          className="mr-2"
+                        />
+                        <span className="text-sm">Show hint button</span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => setShowSettings(false)}
+                    className="w-full mt-6 bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition-colors"
+                  >
+                    Done
+                  </button>
+                </motion.div>
               </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
+            )}
+          </AnimatePresence>
+        </div>
       </div>
-    </div>
-  );
+    );
 };
 
 export default EnhancedVoiceRecognition;

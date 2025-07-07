@@ -15,7 +15,6 @@ import {
   Video,
   VideoOff,
   MessageSquare,
-  Crown,
   Lock,
   Loader2,
   Send,
@@ -30,22 +29,16 @@ import {
   Palette
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { hasActiveSubscription } from '../lib/paypal.js';
 import { getCurrentUserId } from '../lib/authUtils';
 import { supabase } from '../lib/supabase';
+import { debounce } from 'lodash';
 
-/**
- * Live Code Component
- * Real-time collaborative coding environment with voice/video chat
- * Integrates with Supabase for real-time synchronization
- */
 const LiveCode: React.FC = () => {
   const navigate = useNavigate();
   const editorRef = useRef<HTMLTextAreaElement>(null);
   const outputRef = useRef<HTMLIFrameElement>(null);
   
   // State management
-  const [isPremium, setIsPremium] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [code, setCode] = useState(`<!DOCTYPE html>
 <html lang="en">
@@ -129,22 +122,37 @@ const LiveCode: React.FC = () => {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   /**
+   * Load user preferences
+   */
+  useEffect(() => {
+    const savedPrefs = localStorage.getItem('live_code_preferences');
+    if (savedPrefs) {
+      const prefs = JSON.parse(savedPrefs);
+      setTheme(prefs.theme || 'dark');
+      setFontSize(prefs.fontSize || 14);
+      setAutoSave(prefs.autoSave !== false);
+    }
+  }, []);
+
+  /**
+   * Save user preferences
+   */
+  const savePreferences = () => {
+    localStorage.setItem('live_code_preferences', JSON.stringify({
+      theme,
+      fontSize,
+      autoSave
+    }));
+  };
+
+  /**
    * Initialize live coding session
    */
   useEffect(() => {
     const initializeSession = async () => {
       try {
         setIsLoading(true);
-        
-        // Check premium access using PayPal
-        const premiumStatus = await hasActiveSubscription();
-        setIsPremium(premiumStatus);
-
-        if (premiumStatus) {
-          // Initialize real-time session
-          await initializeRealtimeSession();
-        }
-
+        await initializeRealtimeSession();
       } catch (error) {
         console.error('Failed to initialize live code session:', error);
         Sentry.captureException(error);
@@ -154,7 +162,18 @@ const LiveCode: React.FC = () => {
     };
 
     initializeSession();
-  }, []);
+
+    return () => {
+      if (sessionId) {
+        const codeChannel = supabase.channel(`live_code_${sessionId}`);
+        const chatChannel = supabase.channel(`chat_${sessionId}`);
+        const participantsChannel = supabase.channel(`participants_${sessionId}`);
+        codeChannel.unsubscribe();
+        chatChannel.unsubscribe();
+        participantsChannel.unsubscribe();
+      }
+    };
+  }, [sessionId]);
 
   /**
    * Initialize real-time session with Supabase
@@ -177,13 +196,17 @@ const LiveCode: React.FC = () => {
         })
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
       const result = await response.json();
 
       if (result.success) {
         setSessionId(result.session_id);
-        
-        // Set up real-time subscriptions
         setupRealtimeSubscriptions(result.session_id);
+      } else {
+        throw new Error(result.message || 'Failed to initialize session');
       }
 
     } catch (error) {
@@ -234,11 +257,10 @@ const LiveCode: React.FC = () => {
         table: 'session_participants',
         filter: `session_id=eq.${sessionId}`
       }, (payload) => {
-        loadParticipants(sessionId);
+        debouncedLoadParticipants(sessionId);
       })
       .subscribe();
 
-    // Cleanup on unmount
     return () => {
       codeChannel.unsubscribe();
       chatChannel.unsubscribe();
@@ -247,7 +269,7 @@ const LiveCode: React.FC = () => {
   };
 
   /**
-   * Load participants
+   * Load participants (debounced)
    */
   const loadParticipants = async (sessionId: string) => {
     try {
@@ -257,6 +279,10 @@ const LiveCode: React.FC = () => {
         }
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
       const result = await response.json();
 
       if (result.success) {
@@ -265,8 +291,11 @@ const LiveCode: React.FC = () => {
 
     } catch (error) {
       console.error('Failed to load participants:', error);
+      Sentry.captureException(error);
     }
   };
+
+  const debouncedLoadParticipants = debounce(loadParticipants, 300);
 
   /**
    * Handle code changes
@@ -315,14 +344,20 @@ const LiveCode: React.FC = () => {
         })
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
       const result = await response.json();
 
       if (result.success) {
         setLastSaved(new Date());
+        savePreferences();
       }
 
     } catch (error) {
       console.error('Failed to save code:', error);
+      Sentry.captureException(error);
     }
   };
 
@@ -346,6 +381,10 @@ const LiveCode: React.FC = () => {
         })
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
       const result = await response.json();
 
       if (result.success) {
@@ -354,6 +393,7 @@ const LiveCode: React.FC = () => {
 
     } catch (error) {
       console.error('Failed to send message:', error);
+      Sentry.captureException(error);
     }
   };
 
@@ -406,39 +446,6 @@ const LiveCode: React.FC = () => {
         >
           <Loader2 className="animate-spin mx-auto mb-4" size={48} />
           <p className="text-xl font-semibold">Initializing Live Code Session...</p>
-        </motion.div>
-      </div>
-    );
-  }
-
-  if (!isPremium) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-900 to-blue-900 flex items-center justify-center p-6">
-        <motion.div
-          className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-2xl"
-          initial={{ scale: 0.9, opacity: 0 }}
-          animate={{ scale: 1, opacity: 1 }}
-        >
-          <Lock className="mx-auto mb-6 text-gray-400" size={64} />
-          <h2 className="text-2xl font-bold text-gray-800 mb-4">Premium Feature</h2>
-          <p className="text-gray-600 mb-6">
-            Live Code requires a premium subscription for real-time collaborative coding with voice and video chat.
-          </p>
-          <div className="space-y-3">
-            <button
-              onClick={() => navigate('/play-learn')}
-              className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white py-3 px-6 rounded-lg font-semibold hover:shadow-lg transition-all"
-            >
-              <Crown className="inline mr-2" size={20} />
-              Upgrade to Premium
-            </button>
-            <button
-              onClick={() => navigate('/play-learn')}
-              className="w-full text-gray-600 py-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              Back to Play & Learn
-            </button>
-          </div>
         </motion.div>
       </div>
     );
@@ -617,7 +624,7 @@ const LiveCode: React.FC = () => {
             ref={outputRef}
             className="flex-1 bg-white"
             title="Code Preview"
-            sandbox="allow-scripts allow-same-origin"
+            sandbox="allow-scripts allow-same-origin allow-modals allow-popups"
           />
         </div>
 

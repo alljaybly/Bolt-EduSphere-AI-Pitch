@@ -14,7 +14,6 @@ import {
   Star,
   Heart,
   Sparkles,
-  Crown,
   Lock,
   Loader2,
   Mic,
@@ -31,28 +30,20 @@ import {
   Languages
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { hasActiveSubscription } from '../lib/paypal.js';
 import { getCurrentUserId } from '../lib/authUtils';
 import { supabase } from '../lib/supabase';
 import confetti from 'canvas-confetti';
 
-/**
- * Story Mode Component
- * Interactive storytelling with AI-generated narratives and voice synthesis
- * Supports multiple languages, accessibility features, and premium content
- */
 const StoryMode: React.FC = () => {
   const navigate = useNavigate();
   const audioRef = useRef<HTMLAudioElement>(null);
   
   // State management
-  const [isPremium, setIsPremium] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [currentStory, setCurrentStory] = useState<any>(null);
   const [stories, setStories] = useState<any[]>([]);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentChapter, setCurrentChapter] = useState(0);
-  const [progress, setProgress] = useState(0);
   const [volume, setVolume] = useState(0.8);
   const [isMuted, setIsMuted] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -65,6 +56,7 @@ const StoryMode: React.FC = () => {
   const [voiceEnabled, setVoiceEnabled] = useState(true);
   const [highContrast, setHighContrast] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
+  const audioUrlRef = useRef<string | null>(null);
 
   // Language options
   const languages = [
@@ -91,17 +83,8 @@ const StoryMode: React.FC = () => {
     const initializeStoryMode = async () => {
       try {
         setIsLoading(true);
-        
-        // Check premium access
-        const premiumStatus = await hasActiveSubscription();
-        setIsPremium(premiumStatus);
-
-        // Load stories from Supabase
         await loadStories();
-
-        // Load user preferences
         loadUserPreferences();
-
       } catch (error) {
         console.error('Failed to initialize story mode:', error);
         Sentry.captureException(error);
@@ -111,6 +94,18 @@ const StoryMode: React.FC = () => {
     };
 
     initializeStoryMode();
+
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+      window.speechSynthesis.cancel();
+    };
   }, []);
 
   /**
@@ -126,13 +121,16 @@ const StoryMode: React.FC = () => {
         }
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
       const result = await response.json();
 
       if (result.success && result.stories.length > 0) {
         setStories(result.stories);
         setCurrentStory(result.stories[0]);
       } else {
-        // Fallback to sample stories
         const sampleStories = [
           {
             id: 'sample_1',
@@ -250,13 +248,12 @@ const StoryMode: React.FC = () => {
 
     try {
       if (isPlaying) {
-        // Pause narration
         if (audioRef.current) {
           audioRef.current.pause();
         }
+        window.speechSynthesis.cancel();
         setIsPlaying(false);
       } else {
-        // Start narration
         await playChapter(currentChapter);
       }
     } catch (error) {
@@ -275,90 +272,39 @@ const StoryMode: React.FC = () => {
       const chapter = currentStory.chapters[chapterIndex];
       if (!chapter) return;
 
-      // Generate audio if premium user
-      if (isPremium) {
-        const response = await fetch('/.netlify/functions/textToSpeech', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-User-ID': getCurrentUserId()
-          },
-          body: JSON.stringify({
-            text: chapter.content,
-            language: language,
-            settings: {
-              stability: 0.7,
-              similarity_boost: 0.8,
-              style: 0.6,
-              speaking_rate: playbackSpeed
-            }
-          })
-        });
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.src = '';
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current);
+        audioUrlRef.current = null;
+      }
+      window.speechSynthesis.cancel();
 
-        const result = await response.json();
-
-        if (result.success && result.audio_data) {
-          // Play generated audio
-          const audioBlob = new Blob([
-            Uint8Array.from(atob(result.audio_data), c => c.charCodeAt(0))
-          ], { type: 'audio/mpeg' });
-          
-          const audioUrl = URL.createObjectURL(audioBlob);
-          
-          if (audioRef.current) {
-            audioRef.current.src = audioUrl;
-            audioRef.current.volume = isMuted ? 0 : volume;
-            audioRef.current.playbackRate = playbackSpeed;
-            
-            audioRef.current.onended = () => {
-              URL.revokeObjectURL(audioUrl);
-              if (autoPlay && chapterIndex < currentStory.chapters.length - 1) {
-                setCurrentChapter(chapterIndex + 1);
-                setTimeout(() => playChapter(chapterIndex + 1), 1000);
-              } else {
-                setIsPlaying(false);
-                if (chapterIndex === currentStory.chapters.length - 1) {
-                  // Story completed - show confetti
-                  confetti({
-                    particleCount: 100,
-                    spread: 70,
-                    origin: { y: 0.6 }
-                  });
-                }
-              }
-            };
-            
-            await audioRef.current.play();
-            setIsPlaying(true);
+      const utterance = new SpeechSynthesisUtterance(chapter.content);
+      utterance.rate = playbackSpeed;
+      utterance.volume = isMuted ? 0 : volume;
+      utterance.lang = language === 'zh' ? 'zh-CN' : language === 'es' ? 'es-ES' : 'en-US';
+      
+      utterance.onend = () => {
+        if (autoPlay && chapterIndex < currentStory.chapters.length - 1) {
+          setCurrentChapter(chapterIndex + 1);
+          setTimeout(() => playChapter(chapterIndex + 1), 1000);
+        } else {
+          setIsPlaying(false);
+          if (chapterIndex === currentStory.chapters.length - 1) {
+            confetti({
+              particleCount: 100,
+              spread: 70,
+              origin: { y: 0.6 }
+            });
           }
         }
-      } else {
-        // Use browser speech synthesis for free users
-        const utterance = new SpeechSynthesisUtterance(chapter.content);
-        utterance.rate = playbackSpeed;
-        utterance.volume = isMuted ? 0 : volume;
-        utterance.lang = language === 'zh' ? 'zh-CN' : language === 'es' ? 'es-ES' : 'en-US';
-        
-        utterance.onend = () => {
-          if (autoPlay && chapterIndex < currentStory.chapters.length - 1) {
-            setCurrentChapter(chapterIndex + 1);
-            setTimeout(() => playChapter(chapterIndex + 1), 1000);
-          } else {
-            setIsPlaying(false);
-            if (chapterIndex === currentStory.chapters.length - 1) {
-              // Story completed - show confetti
-              confetti({
-                particleCount: 100,
-                spread: 70,
-                origin: { y: 0.6 }
-              });
-            }
-          }
-        };
-        
-        window.speechSynthesis.speak(utterance);
-        setIsPlaying(true);
-      }
+      };
+      
+      window.speechSynthesis.speak(utterance);
+      setIsPlaying(true);
 
     } catch (error) {
       console.error('Failed to play chapter:', error);
@@ -403,18 +349,12 @@ const StoryMode: React.FC = () => {
     setCurrentStory(story);
     setCurrentChapter(0);
     setIsPlaying(false);
-    setProgress(0);
   };
 
   /**
-   * Generate new story (premium feature)
+   * Generate new story
    */
   const generateNewStory = async () => {
-    if (!isPremium) {
-      alert('Story generation requires a premium subscription');
-      return;
-    }
-
     try {
       setIsLoading(true);
       
@@ -426,517 +366,195 @@ const StoryMode: React.FC = () => {
         },
         body: JSON.stringify({
           action: 'generate_story',
-          language: language,
-          grade: 'kindergarten',
-          theme: 'adventure'
+          language,
+          grade: 'kindergarten'
         })
       });
 
+      if (!response.ok) {
+        throw new Error(`HTTP error: ${response.status}`);
+      }
+
       const result = await response.json();
 
-      if (result.success && result.story) {
-        setStories(prev => [result.story, ...prev]);
-        setCurrentStory(result.story);
+      if (result.success) {
+        const newStory = result.story;
+        setStories(prev => [...prev, newStory]);
+        setCurrentStory(newStory);
         setCurrentChapter(0);
         setIsPlaying(false);
-        
-        // Show success confetti
-        confetti({
-          particleCount: 50,
-          spread: 60,
-          origin: { y: 0.7 }
-        });
       }
 
     } catch (error) {
-      console.error('Failed to generate new story:', error);
+      console.error('Failed to generate story:', error);
       Sentry.captureException(error);
+      alert('Failed to generate new story. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   /**
-   * Get theme classes
+   * Share story
    */
-  const getThemeClasses = () => {
-    const selectedTheme = themes.find(t => t.id === theme) || themes[0];
-    const baseClasses = `min-h-screen bg-gradient-to-br ${selectedTheme.bg}`;
+  const shareStory = async () => {
+    if (!currentStory) return;
+
+    const shareUrl = `${window.location.origin}/story-mode?story=${currentStory.story_id}`;
     
-    if (highContrast) {
-      return theme === 'dark' 
-        ? 'min-h-screen bg-black text-white'
-        : 'min-h-screen bg-white text-black';
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      alert('Story link copied to clipboard!');
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+      alert(`Share this link: ${shareUrl}`);
     }
-    
-    return baseClasses;
   };
 
   /**
-   * Get text color classes
+   * Download story
    */
-  const getTextClasses = () => {
-    if (highContrast) {
-      return theme === 'dark' ? 'text-white' : 'text-black';
-    }
-    
-    return theme === 'dark' ? 'text-white' : 'text-gray-800';
-  };
+  const downloadStory = () => {
+    if (!currentStory) return;
 
-  // Save preferences when they change
-  useEffect(() => {
-    saveUserPreferences();
-  }, [language, fontSize, theme, volume, playbackSpeed, autoPlay, showTranscript, voiceEnabled, highContrast, reducedMotion]);
+    const content = currentStory.chapters.map((chapter: any, index: number) => (
+      `# Chapter ${index + 1}: ${chapter.title}\n\n${chapter.content}\n\n`
+    )).join('');
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${currentStory.title}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   if (isLoading) {
     return (
-      <div className={getThemeClasses()}>
-        <div className="flex items-center justify-center min-h-screen">
-          <motion.div
-            className="text-center"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-          >
-            <Loader2 className={`animate-spin mx-auto mb-4 ${getTextClasses()}`} size={48} />
-            <p className={`text-xl font-semibold ${getTextClasses()}`}>Loading Story Mode...</p>
-          </motion.div>
-        </div>
+      <div className={`min-h-screen bg-gradient-to-br ${themes.find(t => t.id === theme)?.bg || 'from-blue-50 to-indigo-100'} flex items-center justify-center`}>
+        <motion.div
+          className="text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={reducedMotion ? {} : { duration: 0.5 }}
+        >
+          <Loader2 className="animate-spin mx-auto mb-4 text-blue-600" size={48} />
+          <p className="text-xl font-semibold text-blue-800">Loading Story Mode...</p>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className={getThemeClasses()}>
-      {/* Header */}
-      <div className="sticky top-0 z-20 bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border-b border-gray-200 dark:border-gray-700">
-        <div className="max-w-6xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
-              <motion.button
-                onClick={() => navigate('/play-learn')}
-                className={`flex items-center ${getTextClasses()} hover:opacity-80 transition-opacity`}
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <ArrowLeft className="mr-2" size={20} />
-                Back
-              </motion.button>
-
-              <div className="flex items-center">
-                <BookOpen className="mr-2 text-purple-600" size={24} />
-                <h1 className={`text-xl font-bold ${getTextClasses()}`}>Story Mode</h1>
-                {isPremium && (
-                  <Crown className="ml-2 text-yellow-500" size={20} />
-                )}
-              </div>
-            </div>
-
-            <div className="flex items-center space-x-2">
-              {/* Language Selector */}
-              <select
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="bg-white/50 dark:bg-gray-800/50 border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-              >
-                {languages.map(lang => (
-                  <option key={lang.code} value={lang.code}>
-                    {lang.flag} {lang.name}
-                  </option>
-                ))}
-              </select>
-
-              {/* Settings Button */}
-              <motion.button
-                onClick={() => setShowSettings(!showSettings)}
-                className="p-2 bg-white/50 dark:bg-gray-800/50 rounded-lg hover:bg-white/70 dark:hover:bg-gray-700/70 transition-colors"
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-              >
-                <Settings size={20} />
-              </motion.button>
-
-              {/* Generate Story Button (Premium) */}
-              {isPremium ? (
-                <motion.button
-                  onClick={generateNewStory}
-                  className="bg-gradient-to-r from-purple-600 to-pink-600 text-white px-4 py-2 rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Sparkles className="mr-2" size={16} />
-                  New Story
-                </motion.button>
-              ) : (
-                <motion.button
-                  onClick={() => navigate('/play-learn')}
-                  className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-lg font-medium hover:shadow-lg transition-all flex items-center"
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                >
-                  <Crown className="mr-2" size={16} />
-                  Upgrade
-                </motion.button>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Settings Panel */}
-      <AnimatePresence>
-        {showSettings && (
+    <div className={`min-h-screen bg-gradient-to-br ${themes.find(t => t.id === theme)?.bg || 'from-blue-50 to-indigo-100'} p-6 ${highContrast ? 'high-contrast' : ''}`}>
+      <div className="max-w-4xl mx-auto">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-8">
           <motion.div
-            className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={() => setShowSettings(false)}
+            className="flex items-center space-x-4"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={reducedMotion ? {} : { duration: 0.5 }}
           >
-            <motion.div
-              className="bg-white dark:bg-gray-800 rounded-2xl p-6 max-w-md w-full shadow-2xl"
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
+            <motion.button
+              onClick={() => navigate('/play-learn')}
+              className="flex items-center text-gray-600 hover:text-gray-800 transition-colors"
+              whileHover={reducedMotion ? {} : { scale: 1.05 }}
+              whileTap={reducedMotion ? {} : { scale: 0.95 }}
             >
-              <h3 className={`text-lg font-bold mb-4 ${getTextClasses()}`}>Story Settings</h3>
-              
-              <div className="space-y-4">
-                {/* Font Size */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${getTextClasses()}`}>
-                    Font Size: {fontSize}px
-                  </label>
-                  <input
-                    type="range"
-                    min="14"
-                    max="24"
-                    value={fontSize}
-                    onChange={(e) => setFontSize(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
+              <ArrowLeft className="mr-2" size={20} />
+              Back
+            </motion.button>
 
-                {/* Theme */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${getTextClasses()}`}>
-                    Theme
-                  </label>
-                  <div className="grid grid-cols-3 gap-2">
-                    {themes.map(themeOption => (
-                      <button
-                        key={themeOption.id}
-                        onClick={() => setTheme(themeOption.id)}
-                        className={`p-2 rounded-lg text-sm font-medium transition-colors ${
-                          theme === themeOption.id
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                      >
-                        {themeOption.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Volume */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${getTextClasses()}`}>
-                    Volume: {Math.round(volume * 100)}%
-                  </label>
-                  <input
-                    type="range"
-                    min="0"
-                    max="1"
-                    step="0.1"
-                    value={volume}
-                    onChange={(e) => setVolume(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Playback Speed */}
-                <div>
-                  <label className={`block text-sm font-medium mb-2 ${getTextClasses()}`}>
-                    Speed: {playbackSpeed}x
-                  </label>
-                  <input
-                    type="range"
-                    min="0.5"
-                    max="2"
-                    step="0.1"
-                    value={playbackSpeed}
-                    onChange={(e) => setPlaybackSpeed(Number(e.target.value))}
-                    className="w-full"
-                  />
-                </div>
-
-                {/* Toggles */}
-                <div className="space-y-2">
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={autoPlay}
-                      onChange={(e) => setAutoPlay(e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className={`text-sm ${getTextClasses()}`}>Auto-play chapters</span>
-                  </label>
-
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={showTranscript}
-                      onChange={(e) => setShowTranscript(e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className={`text-sm ${getTextClasses()}`}>Show transcript</span>
-                  </label>
-
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={voiceEnabled}
-                      onChange={(e) => setVoiceEnabled(e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className={`text-sm ${getTextClasses()}`}>Voice narration</span>
-                  </label>
-
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={highContrast}
-                      onChange={(e) => setHighContrast(e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className={`text-sm ${getTextClasses()}`}>High contrast</span>
-                  </label>
-
-                  <label className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={reducedMotion}
-                      onChange={(e) => setReducedMotion(e.target.checked)}
-                      className="mr-2"
-                    />
-                    <span className={`text-sm ${getTextClasses()}`}>Reduce motion</span>
-                  </label>
-                </div>
-              </div>
-
-              <button
-                onClick={() => setShowSettings(false)}
-                className="w-full mt-6 bg-purple-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-purple-700 transition-colors"
-              >
-                Done
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* Main Content */}
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Story List */}
-          <div className="lg:col-span-1">
-            <h2 className={`text-xl font-bold mb-4 ${getTextClasses()}`}>Available Stories</h2>
-            <div className="space-y-3">
-              {stories.map((story, index) => (
-                <motion.div
-                  key={story.id}
-                  className={`p-4 rounded-lg cursor-pointer transition-all ${
-                    currentStory?.id === story.id
-                      ? 'bg-purple-100 dark:bg-purple-900 border-2 border-purple-500'
-                      : 'bg-white/50 dark:bg-gray-800/50 hover:bg-white/70 dark:hover:bg-gray-700/70 border border-gray-200 dark:border-gray-600'
-                  }`}
-                  onClick={() => selectStory(story)}
-                  whileHover={{ scale: reducedMotion ? 1 : 1.02 }}
-                  whileTap={{ scale: reducedMotion ? 1 : 0.98 }}
-                >
-                  <h3 className={`font-semibold mb-2 ${getTextClasses()}`}>{story.title}</h3>
-                  <p className={`text-sm opacity-70 ${getTextClasses()}`}>
-                    {story.content.substring(0, 100)}...
-                  </p>
-                  <div className="flex items-center justify-between mt-2">
-                    <span className="text-xs bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-2 py-1 rounded">
-                      {story.grade}
-                    </span>
-                    <div className="flex items-center">
-                      {story.chapters && (
-                        <span className={`text-xs ${getTextClasses()} opacity-70`}>
-                          {story.chapters.length} chapters
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </motion.div>
-              ))}
+            <div className="flex items-center">
+              <BookOpen className="mr-2 text-blue-600" size={28} />
+              <h1 className="text-2xl font-bold text-gray-800">Story Mode</h1>
             </div>
           </div>
 
-          {/* Story Reader */}
-          <div className="lg:col-span-2">
-            {currentStory ? (
-              <div className="bg-white/50 dark:bg-gray-800/50 rounded-2xl p-6 shadow-lg">
-                {/* Story Header */}
-                <div className="mb-6">
-                  <h1 className={`text-2xl font-bold mb-2 ${getTextClasses()}`}>
-                    {currentStory.title}
-                  </h1>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <span className="text-sm bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 px-3 py-1 rounded-full">
-                        Chapter {currentChapter + 1} of {currentStory.chapters?.length || 1}
-                      </span>
-                      <span className={`text-sm ${getTextClasses()} opacity-70`}>
-                        {currentStory.grade}
-                      </span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <motion.button
-                        onClick={() => setIsMuted(!isMuted)}
-                        className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {isMuted ? <VolumeX size={20} /> : <Volume2 size={20} />}
-                      </motion.button>
-                      <motion.button
-                        onClick={() => setShowTranscript(!showTranscript)}
-                        className="p-2 bg-gray-100 dark:bg-gray-700 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
-                        whileHover={{ scale: 1.05 }}
-                        whileTap={{ scale: 0.95 }}
-                      >
-                        {showTranscript ? <Eye size={20} /> : <EyeOff size={20} />}
-                      </motion.button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Story Content */}
-                {showTranscript && currentStory.chapters && (
-                  <div className="mb-6">
-                    <h2 className={`text-lg font-semibold mb-3 ${getTextClasses()}`}>
-                      {currentStory.chapters[currentChapter]?.title || `Chapter ${currentChapter + 1}`}
-                    </h2>
-                    <div 
-                      className={`prose max-w-none ${getTextClasses()}`}
-                      style={{ fontSize: `${fontSize}px`, lineHeight: 1.6 }}
-                    >
-                      {currentStory.chapters[currentChapter]?.content || currentStory.content}
-                    </div>
-                  </div>
-                )}
-
-                {/* Audio Player */}
-                <audio ref={audioRef} className="hidden" />
-
-                {/* Controls */}
-                <div className="flex items-center justify-center space-x-4 mb-6">
-                  <motion.button
-                    onClick={previousChapter}
-                    disabled={currentChapter === 0}
-                    className="p-3 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded-full hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    whileHover={{ scale: reducedMotion ? 1 : 1.1 }}
-                    whileTap={{ scale: reducedMotion ? 1 : 0.9 }}
-                  >
-                    <SkipBack size={24} />
-                  </motion.button>
-
-                  <motion.button
-                    onClick={togglePlayback}
-                    disabled={!voiceEnabled}
-                    className="p-4 bg-purple-600 text-white rounded-full hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    whileHover={{ scale: reducedMotion ? 1 : 1.1 }}
-                    whileTap={{ scale: reducedMotion ? 1 : 0.9 }}
-                  >
-                    {isPlaying ? <Pause size={32} /> : <Play size={32} />}
-                  </motion.button>
-
-                  <motion.button
-                    onClick={nextChapter}
-                    disabled={!currentStory.chapters || currentChapter >= currentStory.chapters.length - 1}
-                    className="p-3 bg-purple-100 dark:bg-purple-900 text-purple-800 dark:text-purple-200 rounded-full hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    whileHover={{ scale: reducedMotion ? 1 : 1.1 }}
-                    whileTap={{ scale: reducedMotion ? 1 : 0.9 }}
-                  >
-                    <SkipForward size={24} />
-                  </motion.button>
-                </div>
-
-                {/* Progress Bar */}
-                {currentStory.chapters && (
-                  <div className="mb-4">
-                    <div className="flex justify-between text-sm mb-2">
-                      <span className={getTextClasses()}>Progress</span>
-                      <span className={getTextClasses()}>
-                        {Math.round(((currentChapter + 1) / currentStory.chapters.length) * 100)}%
-                      </span>
-                    </div>
-                    <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
-                      <div 
-                        className="bg-purple-600 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${((currentChapter + 1) / currentStory.chapters.length) * 100}%` }}
-                      ></div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Chapter Navigation */}
-                {currentStory.chapters && currentStory.chapters.length > 1 && (
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-2">
-                    {currentStory.chapters.map((chapter, index) => (
-                      <motion.button
-                        key={index}
-                        onClick={() => {
-                          setCurrentChapter(index);
-                          setIsPlaying(false);
-                        }}
-                        className={`p-2 rounded-lg text-sm font-medium transition-colors ${
-                          currentChapter === index
-                            ? 'bg-purple-600 text-white'
-                            : 'bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600'
-                        }`}
-                        whileHover={{ scale: reducedMotion ? 1 : 1.02 }}
-                        whileTap={{ scale: reducedMotion ? 1 : 0.98 }}
-                      >
-                        {chapter.title || `Chapter ${index + 1}`}
-                      </motion.button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Premium Features Notice */}
-                {!isPremium && (
-                  <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/20 dark:to-purple-900/20 rounded-lg border border-blue-200 dark:border-blue-800">
-                    <div className="flex items-center">
-                      <Crown className="text-yellow-500 mr-3" size={24} />
-                      <div>
-                        <h4 className={`font-semibold ${getTextClasses()}`}>Unlock Premium Stories</h4>
-                        <p className={`text-sm ${getTextClasses()} opacity-70`}>
-                          Get access to AI-generated stories, premium voices, and unlimited content.
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="bg-white/50 dark:bg-gray-800/50 rounded-2xl p-12 text-center">
-                <BookOpen className={`mx-auto mb-4 ${getTextClasses()} opacity-50`} size={64} />
-                <h2 className={`text-xl font-semibold mb-2 ${getTextClasses()}`}>Select a Story</h2>
-                <p className={`${getTextClasses()} opacity-70`}>
-                  Choose a story from the list to begin your reading adventure.
-                </p>
-              </div>
-            )}
+          <div className="flex items-center space-x-3">
+            <motion.button
+              onClick={shareStory}
+              className="p-2 bg-purple-500 text-white rounded-lg hover:bg-purple-600 transition-colors"
+              whileHover={reducedMotion ? {} : { scale: 1.05 }}
+              whileTap={reducedMotion ? {} : { scale: 0.95 }}
+            >
+              <Share2 size={20} />
+            </motion.button>
+            <motion.button
+              onClick={downloadStory}
+              className="p-2 bg-gray-500 text-white rounded-lg hover:bg-gray-600 transition-colors"
+              whileHover={reducedMotion ? {} : { scale: 1.05 }}
+              whileTap={reducedMotion ? {} : { scale: 0.95 }}
+            >
+              <Download size={20} />
+            </motion.button>
+            <motion.button
+              onClick={() => setShowSettings(true)}
+              className="p-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors"
+              whileHover={reducedMotion ? {} : { scale: 1.05 }}
+              whileTap={reducedMotion ? {} : { scale: 0.95 }}
+            >
+              <Settings size={20} />
+            </motion.button>
           </div>
         </div>
-      </div>
-    </div>
-  );
-};
 
-export default StoryMode;
+        {/* Story Selection */}
+        <div className="mb-8">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">Available Stories</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {stories.map((story) => (
+              <motion.div
+                key={story.id}
+                className={`p-4 rounded-lg cursor-pointer transition-colors ${
+                  currentStory?.id === story.id ? 'bg-blue-100' : 'bg-white hover:bg-gray-50'
+                } ${highContrast ? 'border-2 border-black' : 'shadow-lg'}`}
+                onClick={() => selectStory(story)}
+                whileHover={reducedMotion ? {} : { scale: 1.02 }}
+                whileTap={reducedMotion ? {} : { scale: 0.98 }}
+              >
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-800">{story.title}</h3>
+                    <p className="text-sm text-gray-600">Grade: {story.grade}</p>
+                    <p className="text-sm text-gray-600">
+                      Language: {languages.find(lang => lang.code === story.language)?.name || story.language}
+                    </p>
+                  </div>
+                  <Star className="text-yellow-400" size={20} />
+                </div>
+              </motion.div>
+            ))}
+          </div>
+          <motion.button
+            onClick={generateNewStory}
+            className="mt-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white py-2 px-4 rounded-lg font-medium flex items-center"
+            whileHover={reducedMotion ? {} : { scale: 1.05 }}
+            whileTap={reducedMotion ? {} : { scale: 0.95 }}
+          >
+            <Sparkles className="mr-2" size={16} />
+            Generate New Story
+          </motion.button>
+        </div>
+
+        {/* Current Story */}
+        {currentStory && (
+          <div className="bg-white rounded-2xl shadow-xl p-8">
+            <motion.div
+              key={currentStory.id}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={reducedMotion ? {} : { duration: 0.5 }}
+            >
+              <h2 className="text-2xl font-bold text-gray-800 mb-4">{currentStory.title}</h2>
+              {currentStory.chapters && currentStory.chapters[currentChapter] && (
+                <>
+                  <h3 className="text-xl font-semibold text-gray-700 mb-4">
+                    Chapter {currentChapter + 1}: {currentStory.chapters[currentChapter].title}
+                  </h3>
+                  {showTranscript && (
+                    <p className="text-gray

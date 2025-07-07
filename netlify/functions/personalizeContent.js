@@ -7,9 +7,14 @@ Sentry.init({
 });
 
 const supabase = createClient(
-  process.env.VITE_SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+       process.env.VITE_SUPABASE_URL,
+       process.env.SUPABASE_SERVICE_ROLE_KEY
+     );
+
+     module.exports = async (req, res) => {
+       // Function logic (unchanged)
+       res.status(200).json({ message: 'Personalized content' });
+     };
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
